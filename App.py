@@ -5,7 +5,7 @@ from io import BytesIO
 
 st.set_page_config(page_title="Auction Intelligence Dashboard", layout="wide")
 
-st.title("📊 Auction Intelligence Dashboard")
+st.title("📊 Auction Intelligence Dashboard Made by ZM")
 
 # =====================================================
 # UPLOAD
