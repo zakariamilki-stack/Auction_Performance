@@ -20,7 +20,7 @@ if uploaded_file:
     df = pd.read_excel(uploaded_file)
 
     # =====================================================
-    # CLEAN COLUMN NAMES
+    # CLEAN COLUMN NAMES (CRITICAL FIX)
     # =====================================================
     df.columns = (
         df.columns
@@ -30,6 +30,13 @@ if uploaded_file:
         .str.replace("\n", " ", regex=False)
         .str.replace("\t", " ", regex=False)
     )
+
+    # 🔥 FORCE FIX for broken "SOLD MONTH"
+    # This catches ALL variations like:
+    # Sold\n Month, SOLD  MONTH, Sold Month
+    for col in df.columns:
+        if "SOLD" in col and "MONTH" in col:
+            df.rename(columns={col: "SOLD MONTH"}, inplace=True)
 
     st.write("📌 Columns detected:", df.columns.tolist())
 
@@ -80,19 +87,23 @@ if uploaded_file:
     df = df.dropna(subset=["SoldMonth", "NetPrice"])
 
     # =====================================================
+    # FINAL CHECK
+    # =====================================================
+    st.write("📊 Rows after filtering:", len(df))
+
+    if len(df) == 0:
+        st.warning("No SOLD records found after filtering.")
+        st.stop()
+
+    # =====================================================
     # KPIs
     # =====================================================
-    units_sold = len(df)
-    avg_price = df["NetPrice"].mean()
-    max_price = df["NetPrice"].max()
-    min_price = df["NetPrice"].min()
-
     col1, col2, col3, col4 = st.columns(4)
 
-    col1.metric("Units Sold", units_sold)
-    col2.metric("Avg Net Price", round(avg_price, 2))
-    col3.metric("Max Net Price", max_price)
-    col4.metric("Min Net Price", min_price)
+    col1.metric("Units Sold", len(df))
+    col2.metric("Avg Net Price", round(df["NetPrice"].mean(), 2))
+    col3.metric("Max Net Price", df["NetPrice"].max())
+    col4.metric("Min Net Price", df["NetPrice"].min())
 
     # =====================================================
     # TREND (WITH LABELS)
@@ -112,12 +123,6 @@ if uploaded_file:
         textposition="top center"
     ))
 
-    fig.update_layout(
-        xaxis_title="Month",
-        yaxis_title="Units Sold",
-        height=400
-    )
-
     st.plotly_chart(fig, use_container_width=True)
 
     # =====================================================
@@ -127,30 +132,15 @@ if uploaded_file:
 
     col1, col2, col3, col4 = st.columns(4)
 
-    auction_filter = col1.selectbox(
-        "Auction",
-        ["All"] + sorted(df["Auction"].dropna().unique())
-    )
-
-    make_filter = col2.selectbox(
-        "Make",
-        ["All"] + sorted(df["MAKE"].dropna().unique())
-    )
-
-    model_filter = col3.selectbox(
-        "Model",
-        ["All"] + sorted(df["MODEL"].dropna().unique())
-    )
-
-    version_filter = col4.selectbox(
-        "Version",
-        ["All"] + sorted(df["VERSION"].dropna().unique())
-    )
+    auction_filter = col1.selectbox("Auction", ["All"] + sorted(df["SALE TYPE"].dropna().unique()))
+    make_filter = col2.selectbox("Make", ["All"] + sorted(df["MAKE"].dropna().unique()))
+    model_filter = col3.selectbox("Model", ["All"] + sorted(df["MODEL"].dropna().unique()))
+    version_filter = col4.selectbox("Version", ["All"] + sorted(df["VERSION"].dropna().unique()))
 
     filtered_df = df.copy()
 
     if auction_filter != "All":
-        filtered_df = filtered_df[filtered_df["Auction"] == auction_filter]
+        filtered_df = filtered_df[filtered_df["SALE TYPE"] == auction_filter]
 
     if make_filter != "All":
         filtered_df = filtered_df[filtered_df["MAKE"] == make_filter]
@@ -162,19 +152,3 @@ if uploaded_file:
         filtered_df = filtered_df[filtered_df["VERSION"] == version_filter]
 
     st.dataframe(filtered_df, use_container_width=True)
-
-    # =====================================================
-    # DOWNLOAD
-    # =====================================================
-    def convert_to_excel(dataframe):
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            dataframe.to_excel(writer, index=False, sheet_name="CleanData")
-        return output.getvalue()
-
-    st.download_button(
-        "⬇️ Download Clean Data",
-        data=convert_to_excel(df),
-        file_name="clean_auction_data.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
