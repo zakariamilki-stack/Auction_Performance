@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 from io import BytesIO
 
 st.set_page_config(page_title="Auction Dashboard", layout="wide")
@@ -19,25 +20,21 @@ if uploaded_file:
     df = pd.read_excel(uploaded_file)
 
     # =====================================================
-    # CLEAN COLUMN NAMES (CRITICAL FIX)
+    # CLEAN COLUMN NAMES
     # =====================================================
     df.columns = (
         df.columns
         .astype(str)
         .str.strip()
         .str.upper()
-        .str.replace("\n", " ", regex=False)   # fixes "Sold\n Month"
+        .str.replace("\n", " ", regex=False)
         .str.replace("\t", " ", regex=False)
-        .str.replace("  ", " ", regex=False)
     )
 
-    # =====================================================
-    # DEBUG
-    # =====================================================
     st.write("📌 Columns detected:", df.columns.tolist())
 
     # =====================================================
-    # REQUIRED COLUMNS CHECK
+    # REQUIRED CHECK
     # =====================================================
     required_cols = [
         "CURRENT SALE STATUS",
@@ -45,7 +42,9 @@ if uploaded_file:
         "NET PRICE",
         "SOLD MONTH",
         "MAKE",
-        "MODEL YEAR"
+        "MODEL YEAR",
+        "MODEL",
+        "VERSION"
     ]
 
     missing = [c for c in required_cols if c not in df.columns]
@@ -55,7 +54,7 @@ if uploaded_file:
         st.stop()
 
     # =====================================================
-    # CLEAN STATUS (FIX FOR ZERO ISSUE)
+    # CLEAN STATUS
     # =====================================================
     df["CURRENT SALE STATUS"] = (
         df["CURRENT SALE STATUS"]
@@ -63,8 +62,6 @@ if uploaded_file:
         .str.strip()
         .str.upper()
     )
-
-    st.write("Status breakdown:", df["CURRENT SALE STATUS"].value_counts())
 
     df = df[df["CURRENT SALE STATUS"] == "SOLD"].copy()
 
@@ -74,22 +71,13 @@ if uploaded_file:
     df["NET PRICE"] = pd.to_numeric(df["NET PRICE"], errors="coerce")
 
     # =====================================================
-    # CREATE CLEAN FIELDS
+    # FIELDS
     # =====================================================
     df["Auction"] = df["SALE TYPE"]
     df["NetPrice"] = df["NET PRICE"]
     df["SoldMonth"] = df["SOLD MONTH"].astype(str)
 
     df = df.dropna(subset=["SoldMonth", "NetPrice"])
-
-    # =====================================================
-    # FINAL CHECK
-    # =====================================================
-    st.write("📊 Rows after filtering:", len(df))
-
-    if len(df) == 0:
-        st.warning("No SOLD data found. Check SALE STATUS values.")
-        st.stop()
 
     # =====================================================
     # KPIs
@@ -107,21 +95,37 @@ if uploaded_file:
     col4.metric("Min Net Price", min_price)
 
     # =====================================================
-    # MONTHLY TREND
+    # TREND (WITH LABELS)
     # =====================================================
     st.subheader("📈 Monthly Performance")
 
     trend = df.groupby("SoldMonth")["NetPrice"].count().reset_index()
     trend.columns = ["Month", "Units"]
 
-    st.line_chart(trend.set_index("Month"))
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=trend["Month"],
+        y=trend["Units"],
+        mode="lines+markers+text",
+        text=trend["Units"],
+        textposition="top center"
+    ))
+
+    fig.update_layout(
+        xaxis_title="Month",
+        yaxis_title="Units Sold",
+        height=400
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
 
     # =====================================================
     # FILTERS
     # =====================================================
     st.subheader("🔎 Data Explorer")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
 
     auction_filter = col1.selectbox(
         "Auction",
@@ -134,8 +138,13 @@ if uploaded_file:
     )
 
     model_filter = col3.selectbox(
-        "Model Year",
-        ["All"] + sorted(df["MODEL YEAR"].dropna().unique())
+        "Model",
+        ["All"] + sorted(df["MODEL"].dropna().unique())
+    )
+
+    version_filter = col4.selectbox(
+        "Version",
+        ["All"] + sorted(df["VERSION"].dropna().unique())
     )
 
     filtered_df = df.copy()
@@ -147,7 +156,10 @@ if uploaded_file:
         filtered_df = filtered_df[filtered_df["MAKE"] == make_filter]
 
     if model_filter != "All":
-        filtered_df = filtered_df[filtered_df["MODEL YEAR"] == model_filter]
+        filtered_df = filtered_df[filtered_df["MODEL"] == model_filter]
+
+    if version_filter != "All":
+        filtered_df = filtered_df[filtered_df["VERSION"] == version_filter]
 
     st.dataframe(filtered_df, use_container_width=True)
 
