@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from io import BytesIO
 
-st.set_page_config(page_title="Auction Dashboard", layout="wide")
+st.set_page_config(page_title="Auction Intelligence Dashboard", layout="wide")
 
 st.title("📊 Auction Intelligence Dashboard")
 
@@ -20,15 +20,14 @@ if uploaded_file:
     # CLEAN COLUMNS
     # =====================================================
     df.columns = (
-        df.columns
-        .astype(str)
+        df.columns.astype(str)
         .str.strip()
         .str.upper()
         .str.replace("\n", " ", regex=False)
         .str.replace("\t", " ", regex=False)
     )
 
-    # FIX SOLD MONTH COLUMN
+    # Fix Sold Month column
     for col in df.columns:
         if "SOLD" in col and "MONTH" in col:
             df.rename(columns={col: "SOLD MONTH"}, inplace=True)
@@ -44,24 +43,21 @@ if uploaded_file:
         "MAKE",
         "MODEL",
         "VERSION",
-        "MODEL YEAR"
+        "MODEL YEAR",
+        "LIST TYPE"
     ]
 
     missing = [c for c in required_cols if c not in df.columns]
-
     if missing:
         st.error(f"Missing columns: {missing}")
         st.stop()
 
     # =====================================================
-    # CLEAN STATUS
+    # CLEAN DATA
     # =====================================================
     df["CURRENT SALE STATUS"] = df["CURRENT SALE STATUS"].astype(str).str.strip().str.upper()
     df = df[df["CURRENT SALE STATUS"] == "SOLD"].copy()
 
-    # =====================================================
-    # NUMERIC CLEAN
-    # =====================================================
     df["NET PRICE"] = pd.to_numeric(df["NET PRICE"], errors="coerce")
 
     df["Auction"] = df["SALE TYPE"]
@@ -70,35 +66,20 @@ if uploaded_file:
     # =====================================================
     # MONTH FIX (ROBUST)
     # =====================================================
-
-    # Try convert to datetime first (handles Excel dates)
     df["SoldMonth_raw"] = df["SOLD MONTH"]
 
     df["SoldMonth_dt"] = pd.to_datetime(df["SoldMonth_raw"], errors="coerce")
-
-    # Extract month number from datetime
     df["MonthOrder"] = df["SoldMonth_dt"].dt.month
 
-    # If still NaN, try text mapping fallback
     month_map = {
-        "JAN": 1, "JANUARY": 1,
-        "FEB": 2, "FEBRUARY": 2,
-        "MAR": 3, "MARCH": 3,
-        "APR": 4, "APRIL": 4,
-        "MAY": 5,
-        "JUN": 6, "JUNE": 6,
-        "JUL": 7, "JULY": 7,
-        "AUG": 8, "AUGUST": 8,
-        "SEP": 9, "SEPT": 9, "SEPTEMBER": 9,
-        "OCT": 10, "OCTOBER": 10,
-        "NOV": 11, "NOVEMBER": 11,
-        "DEC": 12, "DECEMBER": 12
+        "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
+        "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12
     }
 
-    missing_mask = df["MonthOrder"].isna()
+    mask = df["MonthOrder"].isna()
 
-    df.loc[missing_mask, "MonthOrder"] = (
-        df.loc[missing_mask, "SoldMonth_raw"]
+    df.loc[mask, "MonthOrder"] = (
+        df.loc[mask, "SoldMonth_raw"]
         .astype(str)
         .str.upper()
         .str.strip()
@@ -106,10 +87,8 @@ if uploaded_file:
         .map(month_map)
     )
 
-    # Drop invalid months safely
     df = df.dropna(subset=["MonthOrder"])
 
-    # Create readable month name
     df["SoldMonth"] = df["MonthOrder"].astype(int).map({
         1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr",
         5: "May", 6: "Jun", 7: "Jul", 8: "Aug",
@@ -117,32 +96,42 @@ if uploaded_file:
     })
 
     # =====================================================
-    # FILTERS (CASCADE)
+    # FILTERS
     # =====================================================
     st.subheader("🔎 Filters")
 
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
 
+    # Auction
     auction = c1.selectbox("Auction", ["All"] + sorted(df["Auction"].dropna().unique()))
     df_f = df.copy()
     if auction != "All":
         df_f = df_f[df_f["Auction"] == auction]
 
+    # Make
     make = c2.selectbox("Make", ["All"] + sorted(df_f["MAKE"].dropna().unique()))
     if make != "All":
         df_f = df_f[df_f["MAKE"] == make]
 
+    # Model
     model = c3.selectbox("Model", ["All"] + sorted(df_f["MODEL"].dropna().unique()))
     if model != "All":
         df_f = df_f[df_f["MODEL"] == model]
 
+    # Version
     version = c4.selectbox("Version", ["All"] + sorted(df_f["VERSION"].dropna().unique()))
     if version != "All":
         df_f = df_f[df_f["VERSION"] == version]
 
+    # Model Year
     year = c5.selectbox("Model Year", ["All"] + sorted(df_f["MODEL YEAR"].dropna().unique()))
     if year != "All":
         df_f = df_f[df_f["MODEL YEAR"] == year]
+
+    # LIST TYPE (NEW)
+    list_type = c6.selectbox("List Type", ["All"] + sorted(df_f["LIST TYPE"].dropna().unique()))
+    if list_type != "All":
+        df_f = df_f[df_f["LIST TYPE"] == list_type]
 
     # =====================================================
     # KPIs
@@ -157,16 +146,14 @@ if uploaded_file:
     col4.metric("Min Net Price", df_f["NetPrice"].min())
 
     # =====================================================
-    # TREND (SORTED + SAFE)
+    # TREND
     # =====================================================
     st.subheader("📈 Monthly Trend")
 
     trend = df_f.groupby(["MonthOrder", "SoldMonth"]).agg(
         Qty=("NetPrice", "count"),
         AvgNet=("NetPrice", "mean")
-    ).reset_index()
-
-    trend = trend.sort_values("MonthOrder")
+    ).reset_index().sort_values("MonthOrder")
 
     fig = go.Figure()
 
@@ -191,6 +178,33 @@ if uploaded_file:
     st.plotly_chart(fig, use_container_width=True)
 
     # =====================================================
+    # 🧠 AI INSIGHTS (RESTORED)
+    # =====================================================
+    st.subheader("🧠 Smart Insights")
+
+    if len(df_f) > 0:
+
+        best_auction = df_f.groupby("Auction")["NetPrice"].count().idxmax()
+        best_count = df_f.groupby("Auction")["NetPrice"].count().max()
+
+        avg_price = df_f["NetPrice"].mean()
+        median_price = df_f["NetPrice"].median()
+
+        trend_direction = "increasing" if trend["Qty"].iloc[-1] > trend["Qty"].iloc[0] else "declining"
+
+        st.info(f"""
+        🔹 Best Auction: {best_auction} ({best_count} units)
+
+        🔹 Avg Price: {round(avg_price, 0)}
+
+        🔹 Market Insight:
+        {'Prices are strong vs median' if avg_price > median_price else 'Prices slightly under pressure'}
+
+        🔹 Volume Trend:
+        Sales are {trend_direction} over time
+        """)
+
+    # =====================================================
     # TABLE
     # =====================================================
     st.dataframe(df_f, use_container_width=True)
@@ -201,7 +215,7 @@ if uploaded_file:
     def to_excel(dataframe):
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            dataframe.to_excel(writer, index=False, sheet_name="CleanData")
+            dataframe.to_excel(writer, index=False)
         return output.getvalue()
 
     st.download_button(
