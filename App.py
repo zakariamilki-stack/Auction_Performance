@@ -134,16 +134,27 @@ if uploaded_file:
         df_f = df_f[df_f["LIST TYPE"] == list_type]
 
     # =====================================================
-    # KPIs
+    # KPI FORMAT FUNCTION (ACCOUNTING STYLE)
     # =====================================================
-    st.subheader("📌 KPIs")
+    def format_aed(value):
+    if pd.isna(value):
+        return "-"
+    return f"AED {value:,.0f}"
 
-    col1, col2, col3, col4 = st.columns(4)
+# =====================================================
+# KPIs
+# =====================================================
+st.subheader("📌 KPIs")
 
-    col1.metric("Units Sold", len(df_f))
-    col2.metric("Avg Net Price", round(df_f["NetPrice"].mean(), 2))
-    col3.metric("Max Net Price", df_f["NetPrice"].max())
-    col4.metric("Min Net Price", df_f["NetPrice"].min())
+col1, col2, col3, col4 = st.columns(4)
+
+col1.metric("Units Sold", f"{len(df_f):,}")
+
+col2.metric("Avg Net Price", format_aed(df_f["NetPrice"].mean()))
+
+col3.metric("Max Net Price", format_aed(df_f["NetPrice"].max()))
+
+col4.metric("Min Net Price", format_aed(df_f["NetPrice"].min()))
 
     # =====================================================
     # TREND
