@@ -5,7 +5,7 @@ from io import BytesIO
 
 st.set_page_config(page_title="Auction Intelligence Dashboard", layout="wide")
 
-st.title("📊 Auction Intelligence Dashboard Made by ZM")
+st.title("📊 Auction Intelligence Dashboard")
 
 # =====================================================
 # UPLOAD
@@ -102,59 +102,50 @@ if uploaded_file:
 
     c1, c2, c3, c4, c5, c6 = st.columns(6)
 
-    # Auction
     auction = c1.selectbox("Auction", ["All"] + sorted(df["Auction"].dropna().unique()))
     df_f = df.copy()
     if auction != "All":
         df_f = df_f[df_f["Auction"] == auction]
 
-    # Make
     make = c2.selectbox("Make", ["All"] + sorted(df_f["MAKE"].dropna().unique()))
     if make != "All":
         df_f = df_f[df_f["MAKE"] == make]
 
-    # Model
     model = c3.selectbox("Model", ["All"] + sorted(df_f["MODEL"].dropna().unique()))
     if model != "All":
         df_f = df_f[df_f["MODEL"] == model]
 
-    # Version
     version = c4.selectbox("Version", ["All"] + sorted(df_f["VERSION"].dropna().unique()))
     if version != "All":
         df_f = df_f[df_f["VERSION"] == version]
 
-    # Model Year
     year = c5.selectbox("Model Year", ["All"] + sorted(df_f["MODEL YEAR"].dropna().unique()))
     if year != "All":
         df_f = df_f[df_f["MODEL YEAR"] == year]
 
-    # LIST TYPE (NEW)
     list_type = c6.selectbox("List Type", ["All"] + sorted(df_f["LIST TYPE"].dropna().unique()))
     if list_type != "All":
         df_f = df_f[df_f["LIST TYPE"] == list_type]
 
     # =====================================================
-    # KPI FORMAT FUNCTION (ACCOUNTING STYLE)
+    # KPI FORMAT FUNCTION
     # =====================================================
     def format_aed(value):
-    if pd.isna(value):
-        return "-"
-    return f"AED {value:,.0f}"
+        if pd.isna(value):
+            return "-"
+        return f"AED {value:,.0f}"
 
-# =====================================================
-# KPIs
-# =====================================================
-st.subheader("📌 KPIs")
+    # =====================================================
+    # KPIs
+    # =====================================================
+    st.subheader("📌 KPIs")
 
-col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4 = st.columns(4)
 
-col1.metric("Units Sold", f"{len(df_f):,}")
-
-col2.metric("Avg Net Price", format_aed(df_f["NetPrice"].mean()))
-
-col3.metric("Max Net Price", format_aed(df_f["NetPrice"].max()))
-
-col4.metric("Min Net Price", format_aed(df_f["NetPrice"].min()))
+    col1.metric("Units Sold", f"{len(df_f):,}")
+    col2.metric("Avg Net Price", format_aed(df_f["NetPrice"].mean()))
+    col3.metric("Max Net Price", format_aed(df_f["NetPrice"].max()))
+    col4.metric("Min Net Price", format_aed(df_f["NetPrice"].min()))
 
     # =====================================================
     # TREND
@@ -186,10 +177,12 @@ col4.metric("Min Net Price", format_aed(df_f["NetPrice"].min()))
         textposition="bottom center"
     ))
 
+    fig.update_layout(height=500)
+
     st.plotly_chart(fig, use_container_width=True)
 
     # =====================================================
-    # 🧠 AI INSIGHTS (RESTORED)
+    # AI INSIGHTS
     # =====================================================
     st.subheader("🧠 Smart Insights")
 
@@ -201,19 +194,19 @@ col4.metric("Min Net Price", format_aed(df_f["NetPrice"].min()))
         avg_price = df_f["NetPrice"].mean()
         median_price = df_f["NetPrice"].median()
 
-        trend_direction = "increasing" if trend["Qty"].iloc[-1] > trend["Qty"].iloc[0] else "declining"
+        trend_direction = "increasing" if len(trend) > 1 and trend["Qty"].iloc[-1] > trend["Qty"].iloc[0] else "declining"
 
         st.info(f"""
-        🔹 Best Auction: {best_auction} ({best_count} units)
+🔹 Best Auction: {best_auction} ({best_count} units)
 
-        🔹 Avg Price: {round(avg_price, 0)}
+🔹 Avg Price: {format_aed(avg_price)}
 
-        🔹 Market Insight:
-        {'Prices are strong vs median' if avg_price > median_price else 'Prices slightly under pressure'}
+🔹 Market Insight:
+{'Prices are strong vs median' if avg_price > median_price else 'Prices slightly under pressure'}
 
-        🔹 Volume Trend:
-        Sales are {trend_direction} over time
-        """)
+🔹 Volume Trend:
+Sales are {trend_direction} over time
+""")
 
     # =====================================================
     # TABLE
