@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from io import BytesIO
 
-st.set_page_config(page_title="Auction Intelligence Dashboard", layout="wide")
+st.set_page_config(page_title="Auction Dashboard", layout="wide")
 
 st.title("📊 Auction Intelligence Dashboard")
 
@@ -14,9 +14,6 @@ uploaded_file = st.file_uploader("Upload Sale Data Excel", type=["xlsx"])
 
 if uploaded_file:
 
-    # =====================================================
-    # LOAD DATA
-    # =====================================================
     df = pd.read_excel(uploaded_file)
 
     # =====================================================
@@ -31,7 +28,7 @@ if uploaded_file:
         .str.replace("\t", " ", regex=False)
     )
 
-    # FIX SOLD MONTH
+    # FIX SOLD MONTH COLUMN
     for col in df.columns:
         if "SOLD" in col and "MONTH" in col:
             df.rename(columns={col: "SOLD MONTH"}, inplace=True)
@@ -57,30 +54,67 @@ if uploaded_file:
         st.stop()
 
     # =====================================================
-    # CLEAN DATA
+    # CLEAN STATUS
     # =====================================================
     df["CURRENT SALE STATUS"] = df["CURRENT SALE STATUS"].astype(str).str.strip().str.upper()
     df = df[df["CURRENT SALE STATUS"] == "SOLD"].copy()
 
+    # =====================================================
+    # NUMERIC CLEAN
+    # =====================================================
     df["NET PRICE"] = pd.to_numeric(df["NET PRICE"], errors="coerce")
 
     df["Auction"] = df["SALE TYPE"]
     df["NetPrice"] = df["NET PRICE"]
-    df["SoldMonth"] = df["SOLD MONTH"].astype(str).str.upper().str.strip()
-
-    df = df.dropna(subset=["NetPrice", "SoldMonth"])
 
     # =====================================================
-    # MONTH ORDER FIX
+    # MONTH FIX (ROBUST)
     # =====================================================
-    month_order = {
-        "JANUARY": 1, "FEBRUARY": 2, "MARCH": 3, "APRIL": 4,
-        "MAY": 5, "JUNE": 6, "JULY": 7, "AUGUST": 8,
-        "SEPTEMBER": 9, "OCTOBER": 10, "NOVEMBER": 11, "DECEMBER": 12
+
+    # Try convert to datetime first (handles Excel dates)
+    df["SoldMonth_raw"] = df["SOLD MONTH"]
+
+    df["SoldMonth_dt"] = pd.to_datetime(df["SoldMonth_raw"], errors="coerce")
+
+    # Extract month number from datetime
+    df["MonthOrder"] = df["SoldMonth_dt"].dt.month
+
+    # If still NaN, try text mapping fallback
+    month_map = {
+        "JAN": 1, "JANUARY": 1,
+        "FEB": 2, "FEBRUARY": 2,
+        "MAR": 3, "MARCH": 3,
+        "APR": 4, "APRIL": 4,
+        "MAY": 5,
+        "JUN": 6, "JUNE": 6,
+        "JUL": 7, "JULY": 7,
+        "AUG": 8, "AUGUST": 8,
+        "SEP": 9, "SEPT": 9, "SEPTEMBER": 9,
+        "OCT": 10, "OCTOBER": 10,
+        "NOV": 11, "NOVEMBER": 11,
+        "DEC": 12, "DECEMBER": 12
     }
 
-    df["MonthOrder"] = df["SoldMonth"].map(month_order)
+    missing_mask = df["MonthOrder"].isna()
+
+    df.loc[missing_mask, "MonthOrder"] = (
+        df.loc[missing_mask, "SoldMonth_raw"]
+        .astype(str)
+        .str.upper()
+        .str.strip()
+        .str[:3]
+        .map(month_map)
+    )
+
+    # Drop invalid months safely
     df = df.dropna(subset=["MonthOrder"])
+
+    # Create readable month name
+    df["SoldMonth"] = df["MonthOrder"].astype(int).map({
+        1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr",
+        5: "May", 6: "Jun", 7: "Jul", 8: "Aug",
+        9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"
+    })
 
     # =====================================================
     # FILTERS (CASCADE)
@@ -89,29 +123,23 @@ if uploaded_file:
 
     c1, c2, c3, c4, c5 = st.columns(5)
 
-    # AUCTION
     auction = c1.selectbox("Auction", ["All"] + sorted(df["Auction"].dropna().unique()))
     df_f = df.copy()
-
     if auction != "All":
         df_f = df_f[df_f["Auction"] == auction]
 
-    # MAKE
     make = c2.selectbox("Make", ["All"] + sorted(df_f["MAKE"].dropna().unique()))
     if make != "All":
         df_f = df_f[df_f["MAKE"] == make]
 
-    # MODEL
     model = c3.selectbox("Model", ["All"] + sorted(df_f["MODEL"].dropna().unique()))
     if model != "All":
         df_f = df_f[df_f["MODEL"] == model]
 
-    # VERSION
     version = c4.selectbox("Version", ["All"] + sorted(df_f["VERSION"].dropna().unique()))
     if version != "All":
         df_f = df_f[df_f["VERSION"] == version]
 
-    # MODEL YEAR
     year = c5.selectbox("Model Year", ["All"] + sorted(df_f["MODEL YEAR"].dropna().unique()))
     if year != "All":
         df_f = df_f[df_f["MODEL YEAR"] == year]
@@ -129,11 +157,11 @@ if uploaded_file:
     col4.metric("Min Net Price", df_f["NetPrice"].min())
 
     # =====================================================
-    # TREND (SORTED MONTHS + LABELS)
+    # TREND (SORTED + SAFE)
     # =====================================================
     st.subheader("📈 Monthly Trend")
 
-    trend = df_f.groupby(["SoldMonth", "MonthOrder"]).agg(
+    trend = df_f.groupby(["MonthOrder", "SoldMonth"]).agg(
         Qty=("NetPrice", "count"),
         AvgNet=("NetPrice", "mean")
     ).reset_index()
@@ -142,7 +170,6 @@ if uploaded_file:
 
     fig = go.Figure()
 
-    # AVG NET (TOP LABEL)
     fig.add_trace(go.Scatter(
         x=trend["SoldMonth"],
         y=trend["AvgNet"],
@@ -152,7 +179,6 @@ if uploaded_file:
         textposition="top center"
     ))
 
-    # QTY (BOTTOM LABEL)
     fig.add_trace(go.Scatter(
         x=trend["SoldMonth"],
         y=trend["Qty"],
@@ -161,13 +187,6 @@ if uploaded_file:
         text=trend["Qty"],
         textposition="bottom center"
     ))
-
-    fig.update_layout(
-        height=500,
-        xaxis_title="Month",
-        yaxis_title="Value",
-        legend_title="Metrics"
-    )
 
     st.plotly_chart(fig, use_container_width=True)
 
