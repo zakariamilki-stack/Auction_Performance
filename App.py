@@ -19,21 +19,25 @@ if uploaded_file:
     df = pd.read_excel(uploaded_file)
 
     # =====================================================
-    # CLEAN COLUMN NAMES
+    # CLEAN COLUMN NAMES (CRITICAL FIX)
     # =====================================================
     df.columns = (
         df.columns
         .astype(str)
         .str.strip()
         .str.upper()
-        .str.replace("\n", " ", regex=False)
+        .str.replace("\n", " ", regex=False)   # fixes "Sold\n Month"
         .str.replace("\t", " ", regex=False)
+        .str.replace("  ", " ", regex=False)
     )
 
+    # =====================================================
+    # DEBUG
+    # =====================================================
     st.write("📌 Columns detected:", df.columns.tolist())
 
     # =====================================================
-    # VALIDATION
+    # REQUIRED COLUMNS CHECK
     # =====================================================
     required_cols = [
         "CURRENT SALE STATUS",
@@ -44,14 +48,14 @@ if uploaded_file:
         "MODEL YEAR"
     ]
 
-    missing_cols = [c for c in required_cols if c not in df.columns]
+    missing = [c for c in required_cols if c not in df.columns]
 
-    if missing_cols:
-        st.error(f"Missing columns: {missing_cols}")
+    if missing:
+        st.error(f"Missing columns: {missing}")
         st.stop()
 
     # =====================================================
-    # CLEAN STATUS (FIX FOR 0 VALUES ISSUE)
+    # CLEAN STATUS (FIX FOR ZERO ISSUE)
     # =====================================================
     df["CURRENT SALE STATUS"] = (
         df["CURRENT SALE STATUS"]
@@ -60,18 +64,17 @@ if uploaded_file:
         .str.upper()
     )
 
-    # DEBUG (optional but useful)
     st.write("Status breakdown:", df["CURRENT SALE STATUS"].value_counts())
 
     df = df[df["CURRENT SALE STATUS"] == "SOLD"].copy()
 
     # =====================================================
-    # CLEAN NUMERIC FIELDS
+    # CLEAN NUMERIC
     # =====================================================
     df["NET PRICE"] = pd.to_numeric(df["NET PRICE"], errors="coerce")
 
     # =====================================================
-    # CREATE FIELDS
+    # CREATE CLEAN FIELDS
     # =====================================================
     df["Auction"] = df["SALE TYPE"]
     df["NetPrice"] = df["NET PRICE"]
@@ -85,7 +88,7 @@ if uploaded_file:
     st.write("📊 Rows after filtering:", len(df))
 
     if len(df) == 0:
-        st.warning("No matching 'SOLD' records found. Check your data values.")
+        st.warning("No SOLD data found. Check SALE STATUS values.")
         st.stop()
 
     # =====================================================
@@ -149,7 +152,7 @@ if uploaded_file:
     st.dataframe(filtered_df, use_container_width=True)
 
     # =====================================================
-    # DOWNLOAD CLEAN DATA
+    # DOWNLOAD
     # =====================================================
     def convert_to_excel(dataframe):
         output = BytesIO()
