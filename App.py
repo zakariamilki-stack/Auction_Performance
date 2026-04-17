@@ -20,7 +20,7 @@ if uploaded_file:
     df = pd.read_excel(uploaded_file)
 
     # =====================================================
-    # CLEAN COLUMN NAMES (CRITICAL FIX)
+    # CLEAN COLUMN NAMES
     # =====================================================
     df.columns = (
         df.columns
@@ -31,9 +31,7 @@ if uploaded_file:
         .str.replace("\t", " ", regex=False)
     )
 
-    # 🔥 FORCE FIX for broken "SOLD MONTH"
-    # This catches ALL variations like:
-    # Sold\n Month, SOLD  MONTH, Sold Month
+    # FIX: messy SOLD MONTH column
     for col in df.columns:
         if "SOLD" in col and "MONTH" in col:
             df.rename(columns={col: "SOLD MONTH"}, inplace=True)
@@ -41,7 +39,7 @@ if uploaded_file:
     st.write("📌 Columns detected:", df.columns.tolist())
 
     # =====================================================
-    # REQUIRED CHECK
+    # REQUIRED COLUMNS CHECK
     # =====================================================
     required_cols = [
         "CURRENT SALE STATUS",
@@ -49,7 +47,6 @@ if uploaded_file:
         "NET PRICE",
         "SOLD MONTH",
         "MAKE",
-        "MODEL YEAR",
         "MODEL",
         "VERSION"
     ]
@@ -78,22 +75,13 @@ if uploaded_file:
     df["NET PRICE"] = pd.to_numeric(df["NET PRICE"], errors="coerce")
 
     # =====================================================
-    # FIELDS
+    # CREATE FIELDS
     # =====================================================
     df["Auction"] = df["SALE TYPE"]
     df["NetPrice"] = df["NET PRICE"]
     df["SoldMonth"] = df["SOLD MONTH"].astype(str)
 
     df = df.dropna(subset=["SoldMonth", "NetPrice"])
-
-    # =====================================================
-    # FINAL CHECK
-    # =====================================================
-    st.write("📊 Rows after filtering:", len(df))
-
-    if len(df) == 0:
-        st.warning("No SOLD records found after filtering.")
-        st.stop()
 
     # =====================================================
     # KPIs
@@ -126,29 +114,67 @@ if uploaded_file:
     st.plotly_chart(fig, use_container_width=True)
 
     # =====================================================
-    # FILTERS
+    # FILTERS (CASCADE FIX)
     # =====================================================
     st.subheader("🔎 Data Explorer")
 
     col1, col2, col3, col4 = st.columns(4)
 
-    auction_filter = col1.selectbox("Auction", ["All"] + sorted(df["SALE TYPE"].dropna().unique()))
-    make_filter = col2.selectbox("Make", ["All"] + sorted(df["MAKE"].dropna().unique()))
-    model_filter = col3.selectbox("Model", ["All"] + sorted(df["MODEL"].dropna().unique()))
-    version_filter = col4.selectbox("Version", ["All"] + sorted(df["VERSION"].dropna().unique()))
+    # 1. MAKE
+    make_filter = col1.selectbox(
+        "Make",
+        ["All"] + sorted(df["MAKE"].dropna().unique())
+    )
 
-    filtered_df = df.copy()
-
-    if auction_filter != "All":
-        filtered_df = filtered_df[filtered_df["SALE TYPE"] == auction_filter]
+    df_filtered = df.copy()
 
     if make_filter != "All":
-        filtered_df = filtered_df[filtered_df["MAKE"] == make_filter]
+        df_filtered = df_filtered[df_filtered["MAKE"] == make_filter]
+
+    # 2. MODEL (depends on MAKE)
+    model_filter = col2.selectbox(
+        "Model",
+        ["All"] + sorted(df_filtered["MODEL"].dropna().unique())
+    )
 
     if model_filter != "All":
-        filtered_df = filtered_df[filtered_df["MODEL"] == model_filter]
+        df_filtered = df_filtered[df_filtered["MODEL"] == model_filter]
+
+    # 3. VERSION (depends on MAKE + MODEL)
+    version_filter = col3.selectbox(
+        "Version",
+        ["All"] + sorted(df_filtered["VERSION"].dropna().unique())
+    )
 
     if version_filter != "All":
-        filtered_df = filtered_df[filtered_df["VERSION"] == version_filter]
+        df_filtered = df_filtered[df_filtered["VERSION"] == version_filter]
 
-    st.dataframe(filtered_df, use_container_width=True)
+    # 4. AUCTION (independent)
+    auction_filter = col4.selectbox(
+        "Auction",
+        ["All"] + sorted(df["Auction"].dropna().unique())
+    )
+
+    if auction_filter != "All":
+        df_filtered = df_filtered[df_filtered["Auction"] == auction_filter]
+
+    # =====================================================
+    # OUTPUT TABLE
+    # =====================================================
+    st.dataframe(df_filtered, use_container_width=True)
+
+    # =====================================================
+    # DOWNLOAD
+    # =====================================================
+    def convert_to_excel(dataframe):
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            dataframe.to_excel(writer, index=False, sheet_name="CleanData")
+        return output.getvalue()
+
+    st.download_button(
+        "⬇️ Download Clean Data",
+        data=convert_to_excel(df),
+        file_name="clean_auction_data.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
