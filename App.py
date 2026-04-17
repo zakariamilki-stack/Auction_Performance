@@ -28,30 +28,10 @@ if uploaded_file:
         .str.replace("\t", " ", regex=False)
     )
 
-    # FIX SOLD MONTH
     for col in df.columns:
         if "SOLD" in col and "MONTH" in col:
             df.rename(columns={col: "SOLD MONTH"}, inplace=True)
 
-    required = [
-        "CURRENT SALE STATUS",
-        "SALE TYPE",
-        "NET PRICE",
-        "SOLD MONTH",
-        "MAKE",
-        "MODEL",
-        "VERSION",
-        "MODEL YEAR"
-    ]
-
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        st.error(f"Missing columns: {missing}")
-        st.stop()
-
-    # =====================================================
-    # CLEAN DATA
-    # =====================================================
     df["CURRENT SALE STATUS"] = df["CURRENT SALE STATUS"].astype(str).str.strip().str.upper()
     df = df[df["CURRENT SALE STATUS"] == "SOLD"].copy()
 
@@ -64,7 +44,7 @@ if uploaded_file:
     df = df.dropna(subset=["NetPrice", "SoldMonth"])
 
     # =====================================================
-    # FILTERS (CASCADE)
+    # FILTERS (SAME LOGIC AS BEFORE)
     # =====================================================
     st.subheader("🔎 Filters")
 
@@ -92,6 +72,52 @@ if uploaded_file:
         df_f = df_f[df_f["MODEL YEAR"] == year]
 
     # =====================================================
+    # AGGREGATION (IMPORTANT FIX)
+    # =====================================================
+    trend = df_f.groupby("SoldMonth").agg(
+        Qty=("NetPrice", "count"),
+        AvgNet=("NetPrice", "mean")
+    ).reset_index()
+
+    # =====================================================
+    # CHART (DUAL LABEL FIX)
+    # =====================================================
+    st.subheader("📊 Monthly Trend (Avg + Qty)")
+
+    fig = go.Figure()
+
+    # Avg Net Price (TOP LINE)
+    fig.add_trace(go.Scatter(
+        x=trend["SoldMonth"],
+        y=trend["AvgNet"],
+        mode="lines+markers+text",
+        name="Avg Net Price",
+        text=[f"{v:,.0f}" for v in trend["AvgNet"]],
+        textposition="top center",
+        line=dict(width=3)
+    ))
+
+    # Qty (BOTTOM LINE)
+    fig.add_trace(go.Scatter(
+        x=trend["SoldMonth"],
+        y=trend["Qty"],
+        mode="lines+markers+text",
+        name="Qty Sold",
+        text=trend["Qty"],
+        textposition="bottom center",
+        line=dict(width=3, dash="dash")
+    ))
+
+    fig.update_layout(
+        height=500,
+        xaxis_title="Month",
+        yaxis_title="Value",
+        legend_title="Metrics"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    # =====================================================
     # KPIs
     # =====================================================
     st.subheader("📌 KPIs")
@@ -102,67 +128,6 @@ if uploaded_file:
     col2.metric("Avg Net Price", round(df_f["NetPrice"].mean(), 2))
     col3.metric("Max Net Price", df_f["NetPrice"].max())
     col4.metric("Min Net Price", df_f["NetPrice"].min())
-
-    # =====================================================
-    # AUCTION COMPARISON CHART (NEW)
-    # =====================================================
-    st.subheader("📊 Auction Comparison (Qty + Avg Price)")
-
-    auction_trend = df_f.groupby(["SoldMonth", "Auction"]).agg(
-        Qty=("NetPrice", "count"),
-        AvgPrice=("NetPrice", "mean")
-    ).reset_index()
-
-    fig = go.Figure()
-
-    for a in auction_trend["Auction"].unique():
-        temp = auction_trend[auction_trend["Auction"] == a]
-
-        fig.add_trace(go.Scatter(
-            x=temp["SoldMonth"],
-            y=temp["Qty"],
-            mode="lines+markers",
-            name=f"{a} - Qty"
-        ))
-
-    fig.update_layout(
-        height=450,
-        xaxis_title="Month",
-        yaxis_title="Units Sold",
-        title="Auction Performance Comparison"
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
-
-    # =====================================================
-    # SMART INSIGHT BOX (NEW)
-    # =====================================================
-    st.subheader("🧠 Smart Insight")
-
-    if len(df_f) > 0:
-
-        best_auction = (
-            df_f.groupby("Auction")["NetPrice"]
-            .count()
-            .sort_values(ascending=False)
-            .head(1)
-        )
-
-        best_name = best_auction.index[0]
-        best_value = best_auction.values[0]
-
-        avg_market = df_f["NetPrice"].mean()
-
-        st.info(
-            f"""
-            🔹 Best Performing Auction: {best_name} ({best_value} units)
-
-            🔹 Average Market Price: {round(avg_market,2)}
-
-            🔹 Observation:
-            {'Market is strong and stable' if avg_market > df_f['NetPrice'].median() else 'Prices are slightly under pressure'}
-            """
-        )
 
     # =====================================================
     # TABLE
