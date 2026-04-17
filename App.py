@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from io import BytesIO
 
-st.set_page_config(page_title="Auction Intelligence Dashboard", layout="wide")
+st.set_page_config(page_title="Auction Intelligence Dashboard made by ZM", layout="wide")
 
 st.title("📊 Auction Intelligence Dashboard")
 
