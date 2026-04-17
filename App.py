@@ -19,7 +19,7 @@ if uploaded_file:
     df = pd.read_excel(uploaded_file)
 
     # =====================================================
-    # CLEAN COLUMN NAMES (ROBUST FIX)
+    # CLEAN COLUMN NAMES
     # =====================================================
     df.columns = (
         df.columns
@@ -28,13 +28,12 @@ if uploaded_file:
         .str.upper()
         .str.replace("\n", " ", regex=False)
         .str.replace("\t", " ", regex=False)
-        .str.replace("  ", " ", regex=False)
     )
 
     st.write("📌 Columns detected:", df.columns.tolist())
 
     # =====================================================
-    # REQUIRED COLUMNS CHECK
+    # VALIDATION
     # =====================================================
     required_cols = [
         "CURRENT SALE STATUS",
@@ -48,14 +47,32 @@ if uploaded_file:
     missing_cols = [c for c in required_cols if c not in df.columns]
 
     if missing_cols:
-        st.error(f"Missing columns in file: {missing_cols}")
+        st.error(f"Missing columns: {missing_cols}")
         st.stop()
 
     # =====================================================
-    # CLEAN DATA
+    # CLEAN STATUS (FIX FOR 0 VALUES ISSUE)
     # =====================================================
-    df = df[df["CURRENT SALE STATUS"] == "Sold"].copy()
+    df["CURRENT SALE STATUS"] = (
+        df["CURRENT SALE STATUS"]
+        .astype(str)
+        .str.strip()
+        .str.upper()
+    )
 
+    # DEBUG (optional but useful)
+    st.write("Status breakdown:", df["CURRENT SALE STATUS"].value_counts())
+
+    df = df[df["CURRENT SALE STATUS"] == "SOLD"].copy()
+
+    # =====================================================
+    # CLEAN NUMERIC FIELDS
+    # =====================================================
+    df["NET PRICE"] = pd.to_numeric(df["NET PRICE"], errors="coerce")
+
+    # =====================================================
+    # CREATE FIELDS
+    # =====================================================
     df["Auction"] = df["SALE TYPE"]
     df["NetPrice"] = df["NET PRICE"]
     df["SoldMonth"] = df["SOLD MONTH"].astype(str)
@@ -63,7 +80,16 @@ if uploaded_file:
     df = df.dropna(subset=["SoldMonth", "NetPrice"])
 
     # =====================================================
-    # KPI SECTION
+    # FINAL CHECK
+    # =====================================================
+    st.write("📊 Rows after filtering:", len(df))
+
+    if len(df) == 0:
+        st.warning("No matching 'SOLD' records found. Check your data values.")
+        st.stop()
+
+    # =====================================================
+    # KPIs
     # =====================================================
     units_sold = len(df)
     avg_price = df["NetPrice"].mean()
@@ -73,9 +99,9 @@ if uploaded_file:
     col1, col2, col3, col4 = st.columns(4)
 
     col1.metric("Units Sold", units_sold)
-    col2.metric("Avg Net Price", round(avg_price, 2) if pd.notna(avg_price) else 0)
-    col3.metric("Max Net Price", max_price if pd.notna(max_price) else 0)
-    col4.metric("Min Net Price", min_price if pd.notna(min_price) else 0)
+    col2.metric("Avg Net Price", round(avg_price, 2))
+    col3.metric("Max Net Price", max_price)
+    col4.metric("Min Net Price", min_price)
 
     # =====================================================
     # MONTHLY TREND
@@ -123,7 +149,7 @@ if uploaded_file:
     st.dataframe(filtered_df, use_container_width=True)
 
     # =====================================================
-    # DOWNLOAD FUNCTION
+    # DOWNLOAD CLEAN DATA
     # =====================================================
     def convert_to_excel(dataframe):
         output = BytesIO()
