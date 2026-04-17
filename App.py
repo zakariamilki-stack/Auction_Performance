@@ -69,7 +69,7 @@ if uploaded_file:
     df = df[df["CURRENT SALE STATUS"] == "SOLD"].copy()
 
     # =====================================================
-    # CLEAN NUMERIC
+    # NUMERIC CLEAN
     # =====================================================
     df["NET PRICE"] = pd.to_numeric(df["NET PRICE"], errors="coerce")
 
@@ -83,36 +83,60 @@ if uploaded_file:
     df = df.dropna(subset=["SoldMonth", "NetPrice"])
 
     # =====================================================
-    # FILTERS (CASCADE FIXED)
+    # FILTERING (FIXED ORDER)
     # =====================================================
     st.subheader("🔎 Data Explorer")
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
 
-    # MAKE
-    make_filter = col1.selectbox("Make", ["All"] + sorted(df["MAKE"].dropna().unique()))
+    # 1. AUCTION (NOW RESTORED)
+    auction_filter = col1.selectbox(
+        "Auction",
+        ["All"] + sorted(df["Auction"].dropna().unique())
+    )
 
     df_f = df.copy()
+    if auction_filter != "All":
+        df_f = df_f[df_f["Auction"] == auction_filter]
+
+    # 2. MAKE
+    make_filter = col2.selectbox(
+        "Make",
+        ["All"] + sorted(df_f["MAKE"].dropna().unique())
+    )
+
     if make_filter != "All":
         df_f = df_f[df_f["MAKE"] == make_filter]
 
-    # MODEL
-    model_filter = col2.selectbox("Model", ["All"] + sorted(df_f["MODEL"].dropna().unique()))
+    # 3. MODEL
+    model_filter = col3.selectbox(
+        "Model",
+        ["All"] + sorted(df_f["MODEL"].dropna().unique())
+    )
+
     if model_filter != "All":
         df_f = df_f[df_f["MODEL"] == model_filter]
 
-    # VERSION
-    version_filter = col3.selectbox("Version", ["All"] + sorted(df_f["VERSION"].dropna().unique()))
+    # 4. VERSION
+    version_filter = col4.selectbox(
+        "Version",
+        ["All"] + sorted(df_f["VERSION"].dropna().unique())
+    )
+
     if version_filter != "All":
         df_f = df_f[df_f["VERSION"] == version_filter]
 
-    # MODEL YEAR (NEW)
-    year_filter = col4.selectbox("Model Year", ["All"] + sorted(df["MODEL YEAR"].dropna().unique()))
+    # 5. MODEL YEAR
+    year_filter = col5.selectbox(
+        "Model Year",
+        ["All"] + sorted(df_f["MODEL YEAR"].dropna().unique())
+    )
+
     if year_filter != "All":
         df_f = df_f[df_f["MODEL YEAR"] == year_filter]
 
     # =====================================================
-    # KPIs (based on FILTERED DATA)
+    # KPIs
     # =====================================================
     col1, col2, col3, col4 = st.columns(4)
 
@@ -122,7 +146,7 @@ if uploaded_file:
     col4.metric("Min Net Price", df_f["NetPrice"].min())
 
     # =====================================================
-    # TREND (NOW CONNECTED TO FILTERS)
+    # TREND (CONNECTED TO FILTERS)
     # =====================================================
     st.subheader("📈 Monthly Performance")
 
