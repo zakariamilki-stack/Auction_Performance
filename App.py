@@ -2,32 +2,22 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from io import BytesIO
-import requests
 
 st.set_page_config(page_title="Auction Intelligence Dashboard made by ZM", layout="wide")
 
 st.title("📊 Auction Intelligence Dashboard")
 
 # =====================================================
-# LOAD DATA FROM SHAREPOINT
+# LOAD DATA FROM LOCAL ONEDRIVE
 # =====================================================
-file_url = "https://alfuttaimgroup-my.sharepoint.com/:x:/r/personal/zakaria_milki_alfuttaim_com/Documents/Fleet%20Plan/4.%20Market%20Value%20-%20Data/2026YTD-PERFORMANCE.xlsx?download=1"
+file_path = r"D:\Users\ZakariaM\OneDrive - Al-Futtaim Group\Fleet Plan\4. Market Value - Data\2026YTD-PERFORMANCE.xlsx"
 
 try:
-    df = pd.read_excel(file_url)
-    st.success("✅ Data loaded from SharePoint")
-except:
-    try:
-        response = requests.get(file_url)
-        if response.status_code == 200:
-            df = pd.read_excel(BytesIO(response.content))
-            st.success("✅ Data loaded using fallback method")
-        else:
-            st.error("❌ Could not access the SharePoint file. Check permissions.")
-            st.stop()
-    except Exception as e:
-        st.error(f"❌ Error loading file: {e}")
-        st.stop()
+    df = pd.read_excel(file_path)
+    st.success("✅ Data loaded from OneDrive")
+except Exception as e:
+    st.error(f"❌ Failed to load file: {e}")
+    st.stop()
 
 # =====================================================
 # CLEAN COLUMNS
