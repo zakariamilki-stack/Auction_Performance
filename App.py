@@ -1,6 +1,6 @@
 # =====================================================
 # AUCTION INTELLIGENCE PLATFORM V1
-# Developed by Zakaria Milki
+# Developed for Zakaria Milki
 # =====================================================
 
 import streamlit as st
@@ -15,7 +15,7 @@ from io import BytesIO
 # =====================================================
 st.set_page_config(page_title="Auction Intelligence System", layout="wide")
 
-st.title("📊 Auction Intelligence Platform v1 - ZM")
+st.title("📊 Auction Intelligence Platform v1")
 
 # =====================================================
 # LOAD DATA (shared)
@@ -190,7 +190,7 @@ Sales are {trend_direction} over time
 # =====================================================
 # ================= PAGE 2 AI ENGINE =================
 # =====================================================
-elif page == "🤖 AI Price Engine - Developed by ZM":
+elif page == "🤖 AI Price Engine":
 
     st.subheader("🚗 Price Prediction Engine")
 
@@ -260,7 +260,7 @@ elif page == "📉 Residual Tracking":
 # =====================================================
 # ================= PAGE 5 AI DECISION =================
 # =====================================================
-elif page == "⚖️ Sell vs Hold AI- BY ZM":
+elif page == "⚖️ Sell vs Hold AI":
 
     st.subheader("Sell vs Hold Decision Engine")
 
