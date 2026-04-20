@@ -197,14 +197,23 @@ elif page == "🤖 AI Price Engine":
 
     df_ml = df_ml.dropna(subset=["NetPrice","MAKE","MODEL","MODEL YEAR",km_col])
 
-    # remove invalid years
-    df_ml = df_ml[(df_ml["MODEL YEAR"] >= 1990) & (df_ml["MODEL YEAR"] <= 2026)]
+    # =====================================================
+    # 🔥 NEW FILTER: LIST TYPE (AUCTION ONLY)
+    # =====================================================
+    df_ml = df_ml[df_ml["LIST TYPE"].astype(str).str.upper() == "AUCTION"]
 
+    # safety check
+    if len(df_ml) < 30:
+        st.error("Not enough AUCTION-only data in LIST TYPE filter")
+        st.stop()
+
+    # =====================================================
+    # FEATURE ENGINEERING
+    # =====================================================
     CURRENT_YEAR = 2026
+
     df_ml["AGE"] = (CURRENT_YEAR - df_ml["MODEL YEAR"]).clip(1, 40)
-
     df_ml["KM_PER_YEAR"] = df_ml[km_col] / df_ml["AGE"]
-
     df_ml["LOG_PRICE"] = np.log1p(df_ml["NetPrice"])
 
     # =====================================================
@@ -219,9 +228,6 @@ elif page == "🤖 AI Price Engine":
     df_ml["MAKE_ENC"] = df_ml["MAKE"].map(make_map)
     df_ml["MODEL_ENC"] = df_ml["MODEL"].map(model_map)
 
-    # =====================================================
-    # 🔥 FINAL SANITY CLEAN (CRITICAL STEP)
-    # =====================================================
     df_ml = df_ml.replace([np.inf, -np.inf], np.nan)
 
     df_ml = df_ml.dropna(subset=[
@@ -232,89 +238,9 @@ elif page == "🤖 AI Price Engine":
         "LOG_PRICE"
     ])
 
-    # FINAL SAFETY CHECK
     if len(df_ml) < 30:
-        st.error("Insufficient clean data after full pipeline fix")
+        st.error("Insufficient clean AUCTION data after processing")
         st.stop()
-
-    # =====================================================
-    # INPUTS
-    # =====================================================
-    c1,c2,c3,c4 = st.columns(4)
-
-    make_ai = c1.selectbox("Make", sorted(make_map.keys()))
-    model_ai = c2.selectbox("Model", sorted(df_ml[df_ml["MAKE"]==make_ai]["MODEL"].unique()))
-    year_ai = c3.number_input("Year", 1990, 2026, 2020)
-    km_input = c4.number_input("KM", 0, step=1000)
-
-    age = max(1, CURRENT_YEAR - year_ai)
-    km_per_year = km_input / age
-
-    # =====================================================
-    # MODEL TRAINING
-    # =====================================================
-    from sklearn.ensemble import RandomForestRegressor
-
-    X = df_ml[["MAKE_ENC","MODEL_ENC","AGE","KM_PER_YEAR"]]
-    y = df_ml["LOG_PRICE"]
-
-    # FINAL ALIGNMENT CHECK
-    valid = X.notna().all(axis=1) & y.notna()
-    X = X[valid]
-    y = y[valid]
-
-    rf = RandomForestRegressor(
-        n_estimators=200,
-        random_state=42,
-        max_depth=12
-    )
-
-    rf.fit(X, y)
-
-    # =====================================================
-    # PREDICTION
-    # =====================================================
-    make_enc = make_map.get(make_ai, 0)
-    model_enc = model_map.get(model_ai, 0)
-
-    pred_log = rf.predict([[make_enc, model_enc, age, km_per_year]])[0]
-    pred = np.expm1(pred_log)
-
-    # =====================================================
-    # MARKET VIEW (HYBRID)
-    # =====================================================
-    avg_price = df_ml[
-        (df_ml["MAKE"] == make_ai) &
-        (df_ml["MODEL"] == model_ai)
-    ]["NetPrice"].mean()
-
-    if np.isnan(avg_price):
-        avg_price = df_ml["NetPrice"].mean()
-
-    market_low = avg_price * 0.88
-    market_high = avg_price * 1.05
-
-    diff_pct = ((pred - avg_price) / avg_price) * 100
-
-    signal = "🟡 Fair Market"
-    if diff_pct < -5:
-        signal = "🟢 Undervalued"
-    elif diff_pct > 5:
-        signal = "🔴 Overpriced"
-
-    # =====================================================
-    # OUTPUT
-    # =====================================================
-    st.success(f"""
-🚗 Auction AI Price: AED {pred:,.0f}
-
-🌍 Market Range:
-AED {market_low:,.0f} → {market_high:,.0f}
-
-📊 vs Market: {diff_pct:.2f}%
-
-{signal}
-""")
 # =====================================================
 # PAGE 3 - DEALERS
 # =====================================================
