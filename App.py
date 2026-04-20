@@ -10,7 +10,7 @@ st.title("📊 Auction Intelligence Dashboard")
 # =====================================================
 # LOAD DATA FROM LOCAL ONEDRIVE
 # =====================================================
-file_path = r"D:\Users\ZakariaM\OneDrive - Al-Futtaim Group\Fleet Plan\4. Market Value - Data\2026YTD-PERFORMANCE.xlsx"
+file_path = r"‪d:\Users\ZakariaM\OneDrive - Al-Futtaim Group\Fleet Plan\4. Market Value - Data\2026YTD-PERFORMANCE.xlsx"
 
 try:
     df = pd.read_excel(file_path)
