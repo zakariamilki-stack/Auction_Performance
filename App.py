@@ -40,7 +40,7 @@ df["Auction"] = df["SALE TYPE"]
 df["NetPrice"] = df["NET PRICE"]
 
 # =====================================================
-# MONTH FIX (SAFE)
+# MONTH FIX
 # =====================================================
 month_map = {
     "JAN":1,"FEB":2,"MAR":3,"APR":4,"MAY":5,"JUN":6,
@@ -78,17 +78,32 @@ page = st.sidebar.radio("Navigation", [
 ])
 
 # =====================================================
-# ================= PAGE 1 (FULL RESTORED) =================
+# PAGE 1 - DASHBOARD + SEARCH
 # =====================================================
 if page == "📊 Overview":
+
+    st.subheader("🔎 Global Search")
+
+    df_f = df.copy()
+
+    search = st.text_input("Search (Make / Model / Version / Buyer / List Type)")
+
+    if search:
+        search = search.upper()
+
+        df_f = df_f[
+            df_f["MAKE"].astype(str).str.upper().str.contains(search, na=False) |
+            df_f["MODEL"].astype(str).str.upper().str.contains(search, na=False) |
+            df_f["VERSION"].astype(str).str.upper().str.contains(search, na=False) |
+            df_f["BUYER/DEBTOR NAME"].astype(str).str.upper().str.contains(search, na=False) |
+            df_f["LIST TYPE"].astype(str).str.upper().str.contains(search, na=False)
+        ]
 
     st.subheader("Filters")
 
     c1,c2,c3,c4,c5,c6 = st.columns(6)
 
-    df_f = df.copy()
-
-    auction = c1.selectbox("Auction", ["All"] + sorted(df["Auction"].dropna().unique()))
+    auction = c1.selectbox("Auction", ["All"] + sorted(df_f["Auction"].dropna().unique()))
     if auction != "All":
         df_f = df_f[df_f["Auction"] == auction]
 
@@ -124,7 +139,6 @@ if page == "📊 Overview":
     c3.metric("Max Price", fmt(df_f["NetPrice"].max()))
     c4.metric("Min Price", fmt(df_f["NetPrice"].min()))
 
-    # ================= TREND FIXED =================
     st.subheader("📈 Monthly Trend")
 
     if len(df_f) > 0:
@@ -157,12 +171,12 @@ if page == "📊 Overview":
         st.plotly_chart(fig, use_container_width=True)
 
     else:
-        st.warning("No data for selected filters")
+        st.warning("No data found")
 
     st.dataframe(df_f, use_container_width=True)
 
 # =====================================================
-# ================= PAGE 2 AI FIXED =================
+# PAGE 2 - AI ENGINE
 # =====================================================
 elif page == "🤖 AI Price Engine":
 
@@ -176,7 +190,7 @@ elif page == "🤖 AI Price Engine":
     df_ml = df_ml.dropna(subset=["NetPrice","MAKE","MODEL","MODEL YEAR",km_col])
 
     if len(df_ml) < 80:
-        st.warning("Not enough NORMAL data")
+        st.warning("Not enough NORMAL market data")
         st.stop()
 
     le_make = LabelEncoder()
@@ -191,23 +205,14 @@ elif page == "🤖 AI Price Engine":
 
     make_ai = c1.selectbox("Make", sorted(df_ml["MAKE"].unique()))
     model_ai = c2.selectbox("Model", sorted(df_ml[df_ml["MAKE"]==make_ai]["MODEL"].unique()))
-    year_ai = c3.selectbox("Year", sorted(df_ml["MODEL YEAR"].unique()))
+    year_ai = c3.selectbox("Year", sorted(df_ml[df_ml["MODEL"]==model_ai]["MODEL YEAR"].unique()))
     km_input = c4.number_input("KM",0,step=1000)
 
-    filtered = df_ml[
-        (df_ml["MAKE"]==make_ai) &
-        (df_ml["MODEL"]==model_ai) &
-        (df_ml["MODEL YEAR"]==year_ai)
-    ]
+    rf = RandomForestRegressor(n_estimators=150, random_state=42)
 
-    if len(filtered) < 20:
-        st.warning("Not enough sample data")
-        st.stop()
+    X = df_ml[["MAKE_ENC","MODEL_ENC","YEAR_ENC",km_col]]
+    y = df_ml["NetPrice"]
 
-    X = filtered[["MAKE_ENC","MODEL_ENC","YEAR_ENC",km_col]]
-    y = filtered["NetPrice"]
-
-    rf = RandomForestRegressor(n_estimators=120, random_state=42)
     rf.fit(X,y)
 
     pred = rf.predict([[
@@ -220,7 +225,7 @@ elif page == "🤖 AI Price Engine":
     st.success(f"Predicted Price: AED {pred:,.0f}")
 
 # =====================================================
-# ================= PAGE 3 DEALERS + FILTERS =================
+# PAGE 3 - DEALERS
 # =====================================================
 elif page == "📦 Dealer Performance":
 
@@ -256,7 +261,7 @@ elif page == "📦 Dealer Performance":
     st.dataframe(seg)
 
 # =====================================================
-# ================= PAGE 4 INSIGHTS + FILTERS =================
+# PAGE 4 - INSIGHTS
 # =====================================================
 elif page == "📉 Insights Hub":
 
