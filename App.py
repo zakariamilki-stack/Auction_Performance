@@ -180,14 +180,14 @@ if page == "📊 Overview":
 # =====================================================
 elif page == "🤖 AI Price Engine":
 
-    st.subheader("Hybrid Auction + Market Pricing Engine")
+    st.subheader("Hybrid Auction + Market Intelligence Engine")
 
     if km_col is None:
         st.error("KM column missing")
         st.stop()
 
     # =====================================================
-    # CLEAN DATA
+    # CLEAN RAW DATA
     # =====================================================
     df_ml = df.copy()
 
@@ -197,8 +197,12 @@ elif page == "🤖 AI Price Engine":
 
     df_ml = df_ml.dropna(subset=["NetPrice","MAKE","MODEL","MODEL YEAR",km_col])
 
+    # remove invalid years
+    df_ml = df_ml[(df_ml["MODEL YEAR"] >= 1990) & (df_ml["MODEL YEAR"] <= 2026)]
+
     CURRENT_YEAR = 2026
     df_ml["AGE"] = (CURRENT_YEAR - df_ml["MODEL YEAR"]).clip(1, 40)
+
     df_ml["KM_PER_YEAR"] = df_ml[km_col] / df_ml["AGE"]
 
     df_ml["LOG_PRICE"] = np.log1p(df_ml["NetPrice"])
@@ -206,13 +210,32 @@ elif page == "🤖 AI Price Engine":
     # =====================================================
     # ENCODING
     # =====================================================
-    make_map = {v:i for i,v in enumerate(df_ml["MAKE"].astype(str).unique())}
-    model_map = {v:i for i,v in enumerate(df_ml["MODEL"].astype(str).unique())}
+    df_ml["MAKE"] = df_ml["MAKE"].astype(str).str.strip()
+    df_ml["MODEL"] = df_ml["MODEL"].astype(str).str.strip()
 
-    df_ml["MAKE_ENC"] = df_ml["MAKE"].astype(str).map(make_map)
-    df_ml["MODEL_ENC"] = df_ml["MODEL"].astype(str).map(model_map)
+    make_map = {v:i for i,v in enumerate(df_ml["MAKE"].unique())}
+    model_map = {v:i for i,v in enumerate(df_ml["MODEL"].unique())}
 
-    df_ml = df_ml.dropna()
+    df_ml["MAKE_ENC"] = df_ml["MAKE"].map(make_map)
+    df_ml["MODEL_ENC"] = df_ml["MODEL"].map(model_map)
+
+    # =====================================================
+    # 🔥 FINAL SANITY CLEAN (CRITICAL STEP)
+    # =====================================================
+    df_ml = df_ml.replace([np.inf, -np.inf], np.nan)
+
+    df_ml = df_ml.dropna(subset=[
+        "MAKE_ENC",
+        "MODEL_ENC",
+        "AGE",
+        "KM_PER_YEAR",
+        "LOG_PRICE"
+    ])
+
+    # FINAL SAFETY CHECK
+    if len(df_ml) < 30:
+        st.error("Insufficient clean data after full pipeline fix")
+        st.stop()
 
     # =====================================================
     # INPUTS
@@ -228,24 +251,37 @@ elif page == "🤖 AI Price Engine":
     km_per_year = km_input / age
 
     # =====================================================
-    # MODEL (AUCTION VALUE)
+    # MODEL TRAINING
     # =====================================================
     from sklearn.ensemble import RandomForestRegressor
 
     X = df_ml[["MAKE_ENC","MODEL_ENC","AGE","KM_PER_YEAR"]]
     y = df_ml["LOG_PRICE"]
 
-    rf = RandomForestRegressor(n_estimators=150, random_state=42)
+    # FINAL ALIGNMENT CHECK
+    valid = X.notna().all(axis=1) & y.notna()
+    X = X[valid]
+    y = y[valid]
+
+    rf = RandomForestRegressor(
+        n_estimators=200,
+        random_state=42,
+        max_depth=12
+    )
+
     rf.fit(X, y)
 
+    # =====================================================
+    # PREDICTION
+    # =====================================================
     make_enc = make_map.get(make_ai, 0)
     model_enc = model_map.get(model_ai, 0)
 
-    auction_log = rf.predict([[make_enc, model_enc, age, km_per_year]])[0]
-    auction_price = np.expm1(auction_log)
+    pred_log = rf.predict([[make_enc, model_enc, age, km_per_year]])[0]
+    pred = np.expm1(pred_log)
 
     # =====================================================
-    # MARKET PRICE (ONLINE BENCHMARK MODEL)
+    # MARKET VIEW (HYBRID)
     # =====================================================
     avg_price = df_ml[
         (df_ml["MAKE"] == make_ai) &
@@ -255,35 +291,27 @@ elif page == "🤖 AI Price Engine":
     if np.isnan(avg_price):
         avg_price = df_ml["NetPrice"].mean()
 
-    # UAE market correction factor (-8% to -12% trend) :contentReference[oaicite:1]{index=1}
     market_low = avg_price * 0.88
     market_high = avg_price * 1.05
 
-    market_mid = (market_low + market_high) / 2
+    diff_pct = ((pred - avg_price) / avg_price) * 100
 
-    # =====================================================
-    # SIGNAL LOGIC
-    # =====================================================
-    diff = auction_price - market_mid
-    pct = (diff / market_mid) * 100
-
-    if pct < -5:
-        signal = "🟢 Undervalued (Good Buy)"
-    elif pct > 5:
-        signal = "🔴 Overpriced (Avoid / Negotiate)"
-    else:
-        signal = "🟡 Fair Market Zone"
+    signal = "🟡 Fair Market"
+    if diff_pct < -5:
+        signal = "🟢 Undervalued"
+    elif diff_pct > 5:
+        signal = "🔴 Overpriced"
 
     # =====================================================
     # OUTPUT
     # =====================================================
     st.success(f"""
-🚗 Auction AI Price: AED {auction_price:,.0f}
+🚗 Auction AI Price: AED {pred:,.0f}
 
-🌍 Market Range (Online Estimate):
+🌍 Market Range:
 AED {market_low:,.0f} → {market_high:,.0f}
 
-📊 Difference vs Market: {pct:.2f}%
+📊 vs Market: {diff_pct:.2f}%
 
 {signal}
 """)
