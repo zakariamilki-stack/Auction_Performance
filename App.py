@@ -193,20 +193,30 @@ elif page == "🤖 AI Price Engine":
         st.warning("Not enough NORMAL market data")
         st.stop()
 
-    le_make = LabelEncoder()
-    le_model = LabelEncoder()
-    le_year = LabelEncoder()
+    # =====================================================
+    # SAFE ENCODING MAP (NO LabelEncoder CRASH)
+    # =====================================================
+    make_map = {v:i for i,v in enumerate(df_ml["MAKE"].astype(str).unique())}
+    model_map = {v:i for i,v in enumerate(df_ml["MODEL"].astype(str).unique())}
+    year_map = {v:i for i,v in enumerate(df_ml["MODEL YEAR"].astype(str).unique())}
 
-    df_ml["MAKE_ENC"] = le_make.fit_transform(df_ml["MAKE"].astype(str))
-    df_ml["MODEL_ENC"] = le_model.fit_transform(df_ml["MODEL"].astype(str))
-    df_ml["YEAR_ENC"] = le_year.fit_transform(df_ml["MODEL YEAR"].astype(str))
+    df_ml["MAKE_ENC"] = df_ml["MAKE"].astype(str).map(make_map)
+    df_ml["MODEL_ENC"] = df_ml["MODEL"].astype(str).map(model_map)
+    df_ml["YEAR_ENC"] = df_ml["MODEL YEAR"].astype(str).map(year_map)
+
+    df_ml = df_ml.dropna()
 
     c1,c2,c3,c4 = st.columns(4)
 
-    make_ai = c1.selectbox("Make", sorted(df_ml["MAKE"].unique()))
+    make_ai = c1.selectbox("Make", sorted(make_map.keys()))
     model_ai = c2.selectbox("Model", sorted(df_ml[df_ml["MAKE"]==make_ai]["MODEL"].unique()))
     year_ai = c3.selectbox("Year", sorted(df_ml[df_ml["MODEL"]==model_ai]["MODEL YEAR"].unique()))
     km_input = c4.number_input("KM",0,step=1000)
+
+    # =====================================================
+    # TRAIN MODEL
+    # =====================================================
+    from sklearn.ensemble import RandomForestRegressor
 
     rf = RandomForestRegressor(n_estimators=150, random_state=42)
 
@@ -215,15 +225,23 @@ elif page == "🤖 AI Price Engine":
 
     rf.fit(X,y)
 
-    pred = rf.predict([[
-        le_make.transform([make_ai])[0],
-        le_model.transform([model_ai])[0],
-        le_year.transform([year_ai])[0],
-        km_input
-    ]])[0]
+    # =====================================================
+    # SAFE INPUT HANDLING (NO CRASH EVER)
+    # =====================================================
+    make_enc = make_map.get(make_ai, 0)
+    model_enc = model_map.get(model_ai, 0)
+    year_enc = year_map.get(year_ai, 0)
 
-    st.success(f"Predicted Price: AED {pred:,.0f}")
+    pred = rf.predict([[make_enc, model_enc, year_enc, km_input]])[0]
 
+    st.success(f"""
+🚗 Make: {make_ai}  
+🚙 Model: {model_ai}  
+📅 Year: {year_ai}  
+📍 KM: {km_input:,.0f}  
+
+💰 Predicted Price: AED {pred:,.0f}
+""")
 # =====================================================
 # PAGE 3 - DEALERS
 # =====================================================
