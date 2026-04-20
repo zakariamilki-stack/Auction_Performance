@@ -52,7 +52,9 @@ required_cols = [
     "MODEL",
     "VERSION",
     "MODEL YEAR",
-    "LIST TYPE"
+    "LIST TYPE",
+    "BUYER/DEBTOR NAME",
+    "BUYER TYPE"
 ]
 
 missing = [c for c in required_cols if c not in df.columns]
@@ -63,7 +65,7 @@ if missing:
 # =====================================================
 # CLEAN DATA
 # =====================================================
-df["CURRENT SALE STATUS"] = df["CURRENT SALE STATUS"].astype(str).str.strip().str.upper()
+df["CURRENT SALE STATUS"] = df["CURRENT SALE STATUS"].astype(str).str.upper().str.strip()
 df = df[df["CURRENT SALE STATUS"] == "SOLD"].copy()
 
 df["NET PRICE"] = pd.to_numeric(df["NET PRICE"], errors="coerce")
@@ -72,7 +74,7 @@ df["Auction"] = df["SALE TYPE"]
 df["NetPrice"] = df["NET PRICE"]
 
 # =====================================================
-# SAFE MONTH PARSING
+# MONTH FIX
 # =====================================================
 df["SOLD MONTH"] = df["SOLD MONTH"].astype(str).str.upper().str.strip()
 
@@ -93,7 +95,7 @@ df["SoldMonth"] = df["MonthOrder"].map({
 })
 
 # =====================================================
-# SIDEBAR NAVIGATION
+# NAVIGATION
 # =====================================================
 page = st.sidebar.radio("Navigation", [
     "📊 Overview",
@@ -103,7 +105,7 @@ page = st.sidebar.radio("Navigation", [
 ])
 
 # =====================================================
-# KM DETECTION
+# KM COLUMN
 # =====================================================
 km_col = None
 for col in df.columns:
@@ -191,19 +193,19 @@ if page == "📊 Overview":
     st.dataframe(df_f, use_container_width=True)
 
 # =====================================================
-# ================= PAGE 2 AI ENGINE (FIXED) =================
+# ================= PAGE 2 AI ENGINE =================
 # =====================================================
 elif page == "🤖 AI Price Engine":
 
-    st.subheader("🚗 AI Price Prediction Engine (Advanced)")
+    st.subheader("🚗 AI Price Engine (NORMAL Market Reference)")
 
     if km_col is None:
         st.error("KM column not found")
         st.stop()
 
-    df_ml = df.dropna(subset=["NetPrice", km_col, "MAKE", "MODEL", "MODEL YEAR"]).copy()
+    df_ml = df[df["Auction"].astype(str).str.upper() == "NORMAL"].copy()
+    df_ml = df_ml.dropna(subset=["NetPrice", km_col, "MAKE", "MODEL", "MODEL YEAR"])
 
-    # ================= ENCODING =================
     le_make = LabelEncoder()
     le_model = LabelEncoder()
     le_year = LabelEncoder()
@@ -212,7 +214,6 @@ elif page == "🤖 AI Price Engine":
     df_ml["MODEL_ENC"] = le_model.fit_transform(df_ml["MODEL"].astype(str))
     df_ml["YEAR_ENC"] = le_year.fit_transform(df_ml["MODEL YEAR"].astype(str))
 
-    # ================= INPUT =================
     c1, c2, c3, c4 = st.columns(4)
 
     make_ai = c1.selectbox("Make", sorted(df_ml["MAKE"].unique()))
@@ -220,29 +221,24 @@ elif page == "🤖 AI Price Engine":
     year_ai = c3.selectbox("Model Year", sorted(df_ml["MODEL YEAR"].unique()))
     km_input = c4.number_input("KM", min_value=0, step=1000)
 
-    # ================= FILTER =================
     filtered = df_ml[
         (df_ml["MAKE"] == make_ai) &
         (df_ml["MODEL"] == model_ai) &
         (df_ml["MODEL YEAR"] == year_ai)
     ]
 
-    if len(filtered) < 20:
-        st.warning("Not enough data for this combination")
-        st.stop()
-
-    # ================= MODEL =================
-    X = filtered[["MAKE_ENC", "MODEL_ENC", "YEAR_ENC", km_col]]
-    y = filtered["NetPrice"]
-
     rf = RandomForestRegressor(n_estimators=150, random_state=42)
-    rf.fit(X, y)
+    rf.fit(
+        filtered[["MAKE_ENC", "MODEL_ENC", "YEAR_ENC", km_col]],
+        filtered["NetPrice"]
+    )
 
-    make_enc = le_make.transform([make_ai])[0]
-    model_enc = le_model.transform([model_ai])[0]
-    year_enc = le_year.transform([year_ai])[0]
-
-    pred = rf.predict([[make_enc, model_enc, year_enc, km_input]])[0]
+    pred = rf.predict([[
+        le_make.transform([make_ai])[0],
+        le_model.transform([model_ai])[0],
+        le_year.transform([year_ai])[0],
+        km_input
+    ]])[0]
 
     st.success(f"""
 🚗 Make: {make_ai}  
@@ -254,26 +250,38 @@ elif page == "🤖 AI Price Engine":
 """)
 
 # =====================================================
-# ================= PAGE 3 =================
+# ================= PAGE 3 DEALER INTELLIGENCE =================
 # =====================================================
 elif page == "📦 Dealer Performance":
 
-    st.subheader("Dealer Performance")
+    st.subheader("Dealer Intelligence Dashboard")
 
-    perf = df.groupby("Auction").agg(
+    # ================= TOP BIDDERS =================
+    top_bidders = df.groupby("BUYER/DEBTOR NAME").agg(
         Units=("NetPrice", "count"),
-        AvgPrice=("NetPrice", "mean"),
-        TotalValue=("NetPrice", "sum")
+        TotalValue=("NetPrice", "sum"),
+        AvgPrice=("NetPrice", "mean")
+    ).reset_index().sort_values("TotalValue", ascending=False)
+
+    st.subheader("🏆 Top Bidders")
+    st.dataframe(top_bidders.head(15))
+
+    # ================= BUYER TYPE SEGMENTATION =================
+    seg = df.groupby("BUYER TYPE").agg(
+        Units=("NetPrice", "count"),
+        TotalValue=("NetPrice", "sum"),
+        AvgPrice=("NetPrice", "mean")
     ).reset_index()
 
-    st.dataframe(perf)
+    st.subheader("📊 Buyer Type Segmentation")
+    st.dataframe(seg)
 
     fig = go.Figure()
-    fig.add_trace(go.Bar(x=perf["Auction"], y=perf["TotalValue"]))
+    fig.add_trace(go.Bar(x=seg["BUYER TYPE"], y=seg["TotalValue"]))
     st.plotly_chart(fig, use_container_width=True)
 
 # =====================================================
-# ================= PAGE 4 =================
+# ================= PAGE 4 INSIGHTS =================
 # =====================================================
 elif page == "📉 Insights Hub":
 
