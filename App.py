@@ -180,14 +180,14 @@ if page == "📊 Overview":
 # =====================================================
 elif page == "🤖 AI Price Engine":
 
-    st.subheader("Hybrid Auction + Market Intelligence Engine")
+    st.subheader("Hybrid Auction + Market Intelligence Engine (AUCTION ONLY)")
 
     if km_col is None:
         st.error("KM column missing")
         st.stop()
 
     # =====================================================
-    # CLEAN RAW DATA
+    # LOAD + CLEAN DATA
     # =====================================================
     df_ml = df.copy()
 
@@ -195,16 +195,22 @@ elif page == "🤖 AI Price Engine":
     df_ml[km_col] = pd.to_numeric(df_ml[km_col], errors="coerce")
     df_ml["MODEL YEAR"] = pd.to_numeric(df_ml["MODEL YEAR"], errors="coerce")
 
-    df_ml = df_ml.dropna(subset=["NetPrice","MAKE","MODEL","MODEL YEAR",km_col])
+    df_ml = df_ml.dropna(subset=[
+        "NetPrice",
+        "MAKE",
+        "MODEL",
+        "MODEL YEAR",
+        km_col,
+        "LIST TYPE"
+    ])
 
     # =====================================================
-    # 🔥 NEW FILTER: LIST TYPE (AUCTION ONLY)
+    # 🔥 STRICT FILTER: AUCTION ONLY
     # =====================================================
     df_ml = df_ml[df_ml["LIST TYPE"].astype(str).str.upper() == "AUCTION"]
 
-    # safety check
     if len(df_ml) < 30:
-        st.error("Not enough AUCTION-only data in LIST TYPE filter")
+        st.error("Insufficient AUCTION data in LIST TYPE filter")
         st.stop()
 
     # =====================================================
@@ -214,20 +220,27 @@ elif page == "🤖 AI Price Engine":
 
     df_ml["AGE"] = (CURRENT_YEAR - df_ml["MODEL YEAR"]).clip(1, 40)
     df_ml["KM_PER_YEAR"] = df_ml[km_col] / df_ml["AGE"]
+
     df_ml["LOG_PRICE"] = np.log1p(df_ml["NetPrice"])
 
     # =====================================================
-    # ENCODING
+    # CLEAN STRINGS
     # =====================================================
     df_ml["MAKE"] = df_ml["MAKE"].astype(str).str.strip()
     df_ml["MODEL"] = df_ml["MODEL"].astype(str).str.strip()
 
+    # =====================================================
+    # ENCODING
+    # =====================================================
     make_map = {v:i for i,v in enumerate(df_ml["MAKE"].unique())}
     model_map = {v:i for i,v in enumerate(df_ml["MODEL"].unique())}
 
     df_ml["MAKE_ENC"] = df_ml["MAKE"].map(make_map)
     df_ml["MODEL_ENC"] = df_ml["MODEL"].map(model_map)
 
+    # =====================================================
+    # FINAL CLEAN (IMPORTANT)
+    # =====================================================
     df_ml = df_ml.replace([np.inf, -np.inf], np.nan)
 
     df_ml = df_ml.dropna(subset=[
@@ -239,8 +252,95 @@ elif page == "🤖 AI Price Engine":
     ])
 
     if len(df_ml) < 30:
-        st.error("Insufficient clean AUCTION data after processing")
+        st.error("Insufficient clean AUCTION data after full processing")
         st.stop()
+
+    # =====================================================
+    # INPUT UI
+    # =====================================================
+    c1, c2, c3, c4 = st.columns(4)
+
+    make_ai = c1.selectbox("Make", sorted(make_map.keys()))
+    model_ai = c2.selectbox(
+        "Model",
+        sorted(df_ml[df_ml["MAKE"] == make_ai]["MODEL"].unique())
+    )
+    year_ai = c3.number_input("Model Year", 1990, 2026, 2020)
+    km_input = c4.number_input("KM", 0, step=1000)
+
+    # =====================================================
+    # DERIVED FEATURES
+    # =====================================================
+    age = max(1, CURRENT_YEAR - year_ai)
+    km_per_year = km_input / age
+
+    # =====================================================
+    # MODEL TRAINING
+    # =====================================================
+    from sklearn.ensemble import RandomForestRegressor
+
+    X = df_ml[["MAKE_ENC", "MODEL_ENC", "AGE", "KM_PER_YEAR"]]
+    y = df_ml["LOG_PRICE"]
+
+    # safety alignment
+    valid = X.notna().all(axis=1) & y.notna()
+    X = X[valid]
+    y = y[valid]
+
+    rf = RandomForestRegressor(
+        n_estimators=200,
+        random_state=42,
+        max_depth=12
+    )
+
+    rf.fit(X, y)
+
+    # =====================================================
+    # PREDICTION
+    # =====================================================
+    make_enc = make_map.get(make_ai, 0)
+    model_enc = model_map.get(model_ai, 0)
+
+    pred_log = rf.predict([[make_enc, model_enc, age, km_per_year]])[0]
+    pred = np.expm1(pred_log)
+
+    # =====================================================
+    # MARKET BENCHMARK (INSIDE AUCTION CONTEXT)
+    # =====================================================
+    avg_price = df_ml[
+        (df_ml["MAKE"] == make_ai) &
+        (df_ml["MODEL"] == model_ai)
+    ]["NetPrice"].mean()
+
+    if pd.isna(avg_price):
+        avg_price = df_ml["NetPrice"].mean()
+
+    market_low = avg_price * 0.88
+    market_high = avg_price * 1.05
+    market_mid = (market_low + market_high) / 2
+
+    diff_pct = ((pred - market_mid) / market_mid) * 100
+
+    if diff_pct < -5:
+        signal = "🟢 Undervalued (BUY OPPORTUNITY)"
+    elif diff_pct > 5:
+        signal = "🔴 Overpriced (NEGOTIATE / AVOID)"
+    else:
+        signal = "🟡 Fair Market Zone"
+
+    # =====================================================
+    # OUTPUT
+    # =====================================================
+    st.success(f"""
+🚗 Auction AI Price: AED {pred:,.0f}
+
+📊 Market Range (Auction Benchmark):
+AED {market_low:,.0f} → {market_high:,.0f}
+
+📈 Difference vs Market: {diff_pct:.2f}%
+
+{signal}
+""")
 # =====================================================
 # PAGE 3 - DEALERS
 # =====================================================
