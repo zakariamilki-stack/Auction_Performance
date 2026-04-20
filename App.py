@@ -272,4 +272,4 @@ elif page == "📉 Insights Hub":
 
     st.plotly_chart(fig)
     st.dataframe(df_i.head(50))
-``
+
