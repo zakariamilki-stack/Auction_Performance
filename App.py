@@ -14,7 +14,7 @@ st.title("📊 Auction Intelligence Dashboard")
 # =====================================================
 # LOAD DATA
 # =====================================================
-file_path = "https://raw.githubusercontent.com/zakariamilki-stack/Auctiondata/refs/heads/main/2026YTD-PERFORMANCE.xlsx"
+file_path = "your_file_path_here.xlsx"  # <-- REQUIRED
 
 try:
     df = pd.read_excel(file_path)
@@ -78,14 +78,13 @@ page = st.sidebar.radio("Navigation", [
 ])
 
 # =====================================================
-# ================= PAGE 1 (FULL RESTORED) =================
+# ================= PAGE 1 =================
 # =====================================================
 if page == "📊 Overview":
 
     st.subheader("Filters")
 
     c1,c2,c3,c4,c5,c6 = st.columns(6)
-
     df_f = df.copy()
 
     auction = c1.selectbox("Auction", ["All"] + sorted(df["Auction"].dropna().unique()))
@@ -116,26 +115,21 @@ if page == "📊 Overview":
         return "-" if pd.isna(x) else f"AED {x:,.0f}"
 
     st.subheader("📌 KPIs")
-
     c1,c2,c3,c4 = st.columns(4)
-
     c1.metric("Units", len(df_f))
     c2.metric("Avg Price", fmt(df_f["NetPrice"].mean()))
     c3.metric("Max Price", fmt(df_f["NetPrice"].max()))
     c4.metric("Min Price", fmt(df_f["NetPrice"].min()))
 
-    # ================= TREND FIXED =================
     st.subheader("📈 Monthly Trend")
 
     if len(df_f) > 0:
-
         trend = df_f.groupby(["MonthOrder","SoldMonth"]).agg(
             Qty=("NetPrice","count"),
             AvgNet=("NetPrice","mean")
         ).reset_index().sort_values("MonthOrder")
 
         fig = go.Figure()
-
         fig.add_trace(go.Scatter(
             x=trend["SoldMonth"],
             y=trend["AvgNet"],
@@ -144,7 +138,6 @@ if page == "📊 Overview":
             text=[f"{x:,.0f}" for x in trend["AvgNet"]],
             textposition="top center"
         ))
-
         fig.add_trace(go.Scatter(
             x=trend["SoldMonth"],
             y=trend["Qty"],
@@ -153,16 +146,14 @@ if page == "📊 Overview":
             text=trend["Qty"],
             textposition="bottom center"
         ))
-
         st.plotly_chart(fig, use_container_width=True)
-
     else:
         st.warning("No data for selected filters")
 
     st.dataframe(df_f, use_container_width=True)
 
 # =====================================================
-# ================= PAGE 2 AI FIXED =================
+# ================= PAGE 2 =================
 # =====================================================
 elif page == "🤖 AI Price Engine":
 
@@ -192,7 +183,7 @@ elif page == "🤖 AI Price Engine":
     make_ai = c1.selectbox("Make", sorted(df_ml["MAKE"].unique()))
     model_ai = c2.selectbox("Model", sorted(df_ml[df_ml["MAKE"]==make_ai]["MODEL"].unique()))
     year_ai = c3.selectbox("Year", sorted(df_ml["MODEL YEAR"].unique()))
-    km_input = c4.number_input("KM",0,step=1000)
+    km_input = c4.number_input("KM", 0, step=1000)
 
     filtered = df_ml[
         (df_ml["MAKE"]==make_ai) &
@@ -208,7 +199,7 @@ elif page == "🤖 AI Price Engine":
     y = filtered["NetPrice"]
 
     rf = RandomForestRegressor(n_estimators=120, random_state=42)
-    rf.fit(X,y)
+    rf.fit(X, y)
 
     pred = rf.predict([[
         le_make.transform([make_ai])[0],
@@ -220,29 +211,26 @@ elif page == "🤖 AI Price Engine":
     st.success(f"Predicted Price: AED {pred:,.0f}")
 
 # =====================================================
-# ================= PAGE 3 DEALERS + FILTERS =================
+# ================= PAGE 3 =================
 # =====================================================
 elif page == "📦 Dealer Performance":
 
     st.subheader("Dealer Intelligence")
 
     c1,c2 = st.columns(2)
-
     auction_f = c1.selectbox("Auction", ["All"] + sorted(df["Auction"].unique()))
     buyer_f = c2.selectbox("Buyer Type", ["All"] + sorted(df["BUYER TYPE"].dropna().unique()))
 
     df_d = df.copy()
-
     if auction_f != "All":
         df_d = df_d[df_d["Auction"]==auction_f]
-
     if buyer_f != "All":
         df_d = df_d[df_d["BUYER TYPE"]==buyer_f]
 
     top = df_d.groupby("BUYER/DEBTOR NAME").agg(
         Units=("NetPrice","count"),
         Value=("NetPrice","sum")
-    ).sort_values("Value",ascending=False).head(15)
+    ).sort_values("Value", ascending=False).head(15)
 
     st.subheader("Top Bidders")
     st.dataframe(top)
@@ -256,32 +244,32 @@ elif page == "📦 Dealer Performance":
     st.dataframe(seg)
 
 # =====================================================
-# ================= PAGE 4 INSIGHTS + FILTERS =================
+# ================= PAGE 4 =================
 # =====================================================
 elif page == "📉 Insights Hub":
 
     st.subheader("Market Insights")
 
     c1,c2 = st.columns(2)
-
     make_f = c1.selectbox("Make Filter", ["All"] + sorted(df["MAKE"].dropna().unique()))
     year_f = c2.selectbox("Year Filter", ["All"] + sorted(df["MODEL YEAR"].dropna().unique()))
 
     df_i = df.copy()
-
     if make_f != "All":
         df_i = df_i[df_i["MAKE"]==make_f]
-
     if year_f != "All":
         df_i = df_i[df_i["MODEL YEAR"]==year_f]
 
     df_i["AGE"] = 2026 - df_i["MODEL YEAR"]
-
     trend = df_i.groupby("AGE")["NetPrice"].mean().reset_index()
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=trend["AGE"], y=trend["NetPrice"], mode="lines+markers"))
+    fig.add_trace(go.Scatter(
+        x=trend["AGE"],
+        y=trend["NetPrice"],
+        mode="lines+markers"
+    ))
 
     st.plotly_chart(fig)
-
     st.dataframe(df_i.head(50))
+``
