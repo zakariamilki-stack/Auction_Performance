@@ -1,3 +1,8 @@
+# =====================================================
+# AUCTION INTELLIGENCE PLATFORM V1
+# Developed by Zakaria Milki
+# =====================================================
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -10,12 +15,12 @@ from io import BytesIO
 # =====================================================
 st.set_page_config(page_title="Auction Intelligence System", layout="wide")
 
-st.title("📊 Auction Intelligence System")
+st.title("📊 Auction Intelligence Platform v1")
 
 # =====================================================
-# LOAD DATA
+# LOAD DATA (shared)
 # =====================================================
-file_path = "https://raw.githubusercontent.com/zakariamilki-stack/Auctiondata/main/2026YTD-PERFORMANCE.xlsx"
+file_path = "https://raw.githubusercontent.com/zakariamilki-stack/Auctiondata/refs/heads/main/2026YTD-PERFORMANCE.xlsx"
 
 @st.cache_data
 def load_data():
@@ -26,6 +31,7 @@ def load_data():
         .str.strip()
         .str.upper()
         .str.replace("\n", " ", regex=False)
+        .str.replace("\t", " ", regex=False)
     )
 
     for col in df.columns:
@@ -44,12 +50,18 @@ def load_data():
 df = load_data()
 
 # =====================================================
-# SIDEBAR NAVIGATION
+# SIDEBAR NAV
 # =====================================================
-page = st.sidebar.radio("Navigation", ["📊 Overview", "🤖 AI Price Engine"])
+page = st.sidebar.radio("Navigation", [
+    "📊 Overview",
+    "🤖 AI Price Engine",
+    "📦 Dealer Performance",
+    "📉 Residual Tracking",
+    "⚖️ Sell vs Hold AI"
+])
 
 # =====================================================
-# COMMON KM COLUMN DETECTION
+# KM COLUMN DETECTION
 # =====================================================
 km_col = None
 for col in df.columns:
@@ -58,7 +70,7 @@ for col in df.columns:
         break
 
 # =====================================================
-# PAGE 1 - DASHBOARD
+# ================= PAGE 1 (LOCKED EXACT) =================
 # =====================================================
 if page == "📊 Overview":
 
@@ -79,7 +91,6 @@ if page == "📊 Overview":
     if year != "All":
         df_f = df_f[df_f["MODEL YEAR"] == year]
 
-    # KPIs
     st.subheader("📌 KPIs")
 
     col1, col2, col3, col4 = st.columns(4)
@@ -89,10 +100,9 @@ if page == "📊 Overview":
     col3.metric("Max Price", f"AED {df_f['NetPrice'].max():,.0f}")
     col4.metric("Min Price", f"AED {df_f['NetPrice'].min():,.0f}")
 
-    # Trend
     st.subheader("📈 Trend")
 
-    trend = df_f.groupby("Auction")["NetPrice"].mean().reset_index()
+    trend = df_f.groupby("Auction")['NetPrice'].mean().reset_index()
 
     fig = go.Figure()
     fig.add_trace(go.Bar(x=trend["Auction"], y=trend["NetPrice"]))
@@ -102,7 +112,7 @@ if page == "📊 Overview":
     st.dataframe(df_f, use_container_width=True)
 
 # =====================================================
-# PAGE 2 - AI PRICE ENGINE
+# ================= PAGE 2 AI ENGINE =================
 # =====================================================
 elif page == "🤖 AI Price Engine":
 
@@ -113,9 +123,6 @@ elif page == "🤖 AI Price Engine":
         st.stop()
 
     df_ml = df.dropna(subset=[km_col, "NetPrice"]).copy()
-    df_ml[km_col] = pd.to_numeric(df_ml[km_col], errors="coerce")
-    df_ml["NetPrice"] = pd.to_numeric(df_ml["NetPrice"], errors="coerce")
-    df_ml = df_ml.dropna()
 
     c1, c2, c3 = st.columns(3)
 
@@ -126,39 +133,64 @@ elif page == "🤖 AI Price Engine":
     filtered = df_ml[(df_ml["MAKE"] == make) & (df_ml["MODEL YEAR"] == year)]
 
     if len(filtered) < 20:
-        st.warning("Not enough data for prediction")
+        st.warning("Not enough data")
         st.stop()
 
-    # MODEL
     X = filtered[[km_col]]
     y = filtered["NetPrice"]
 
-    model = RandomForestRegressor(n_estimators=120, random_state=42)
-    model.fit(X, y)
+    rf_model = RandomForestRegressor(n_estimators=120, random_state=42)
+    rf_model.fit(X, y)
 
-    pred = model.predict([[km_input]])[0]
+    pred = rf_model.predict(np.array([[km_input]]))[0]
 
-    all_preds = [tree.predict([[km_input]])[0] for tree in model.estimators_]
+    st.success(f"Predicted Price: AED {pred:,.0f}")
 
-    low = np.percentile(all_preds, 10)
-    high = np.percentile(all_preds, 90)
+# =====================================================
+# ================= PAGE 3 DEALER PERF =================
+# =====================================================
+elif page == "📦 Dealer Performance":
 
-    # OUTPUT
-    st.success(f"""
-    💰 Predicted Price: AED {pred:,.0f}  
-    Range: AED {low:,.0f} - AED {high:,.0f}
-    """)
+    st.subheader("Dealer / Auction Performance")
 
-    # MARKET VIEW
-    market_avg = filtered["NetPrice"].mean()
+    perf = df.groupby("Auction").agg(
+        Units=("NetPrice", "count"),
+        AvgPrice=("NetPrice", "mean"),
+        TotalValue=("NetPrice", "sum")
+    ).reset_index()
 
-    if pred < market_avg * 0.95:
-        st.info("🟢 Undervalued")
-    elif pred > market_avg * 1.05:
-        st.error("🔴 Overpriced")
-    else:
-        st.warning("🟡 Fair Market")
+    st.dataframe(perf)
 
-    # CHART
-    st.subheader("KM vs Price")
-    st.scatter_chart(filtered[[km_col, "NetPrice"]].rename(columns={km_col: "KM"}))
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=perf["Auction"], y=perf["TotalValue"]))
+    st.plotly_chart(fig, use_container_width=True)
+
+# =====================================================
+# ================= PAGE 4 RESIDUAL =================
+# =====================================================
+elif page == "📉 Residual Tracking":
+
+    st.subheader("Residual Value Tracking")
+
+    df["AGE"] = 2026 - df["MODEL YEAR"]
+
+    residual = df.groupby("AGE")["NetPrice"].mean().reset_index()
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=residual["AGE"], y=residual["NetPrice"], mode="lines+markers"))
+
+    st.plotly_chart(fig, use_container_width=True)
+
+# =====================================================
+# ================= PAGE 5 AI DECISION =================
+# =====================================================
+elif page == "⚖️ Sell vs Hold AI":
+
+    st.subheader("Sell vs Hold Decision Engine")
+
+    sample = df.copy()
+    sample["AVG_MARKET"] = sample.groupby("MODEL")["NetPrice"].transform("mean")
+
+    sample["DECISION"] = np.where(sample["NetPrice"] < sample["AVG_MARKET"], "HOLD", "SELL")
+
+    st.dataframe(sample[["MAKE", "MODEL", "NetPrice", "AVG_MARKET", "DECISION"]])
