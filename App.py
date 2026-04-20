@@ -9,7 +9,6 @@ from sklearn.preprocessing import LabelEncoder
 # CONFIG
 # =====================================================
 st.set_page_config(page_title="Auction Intelligence Dashboard made by ZM", layout="wide")
-
 st.title("📊 Auction Intelligence Dashboard")
 
 # =====================================================
@@ -24,7 +23,7 @@ except Exception as e:
     st.stop()
 
 # =====================================================
-# CLEAN
+# CLEAN DATA
 # =====================================================
 df.columns = df.columns.astype(str).str.upper().str.strip()
 
@@ -36,6 +35,7 @@ df["CURRENT SALE STATUS"] = df["CURRENT SALE STATUS"].astype(str).str.upper()
 df = df[df["CURRENT SALE STATUS"] == "SOLD"].copy()
 
 df["NET PRICE"] = pd.to_numeric(df["NET PRICE"], errors="coerce")
+
 df["Auction"] = df["SALE TYPE"]
 df["NetPrice"] = df["NET PRICE"]
 
@@ -52,8 +52,14 @@ df["MonthOrder"] = df["SOLD MONTH"].map(month_map)
 df = df.dropna(subset=["MonthOrder"])
 df["MonthOrder"] = df["MonthOrder"].astype(int)
 
+df["SoldMonth"] = df["MonthOrder"].map({
+    1:"Jan",2:"Feb",3:"Mar",4:"Apr",
+    5:"May",6:"Jun",7:"Jul",8:"Aug",
+    9:"Sep",10:"Oct",11:"Nov",12:"Dec"
+})
+
 # =====================================================
-# KM DETECTION
+# KM COLUMN DETECTION
 # =====================================================
 km_col = None
 for c in df.columns:
@@ -72,7 +78,7 @@ page = st.sidebar.radio("Navigation", [
 ])
 
 # =====================================================
-# PAGE 1 (UNCHANGED CORE)
+# ================= PAGE 1 (FULL RESTORED) =================
 # =====================================================
 if page == "📊 Overview":
 
@@ -94,42 +100,85 @@ if page == "📊 Overview":
     if model != "All":
         df_f = df_f[df_f["MODEL"] == model]
 
-    year = c4.selectbox("Year", ["All"] + sorted(df_f["MODEL YEAR"].dropna().unique()))
+    version = c4.selectbox("Version", ["All"] + sorted(df_f["VERSION"].dropna().unique()))
+    if version != "All":
+        df_f = df_f[df_f["VERSION"] == version]
+
+    year = c5.selectbox("Model Year", ["All"] + sorted(df_f["MODEL YEAR"].dropna().unique()))
     if year != "All":
         df_f = df_f[df_f["MODEL YEAR"] == year]
 
-    list_type = c5.selectbox("List Type", ["All"] + sorted(df_f["LIST TYPE"].dropna().unique()))
+    list_type = c6.selectbox("List Type", ["All"] + sorted(df_f["LIST TYPE"].dropna().unique()))
     if list_type != "All":
         df_f = df_f[df_f["LIST TYPE"] == list_type]
 
-    buyer_type = c6.selectbox("Buyer Type", ["All"] + sorted(df_f["BUYER TYPE"].dropna().unique()))
-    if buyer_type != "All":
-        df_f = df_f[df_f["BUYER TYPE"] == buyer_type]
+    def fmt(x):
+        return "-" if pd.isna(x) else f"AED {x:,.0f}"
 
-    st.metric("Units", len(df_f))
-    st.metric("Avg Price", f"AED {df_f['NetPrice'].mean():,.0f}")
+    st.subheader("📌 KPIs")
+
+    c1,c2,c3,c4 = st.columns(4)
+
+    c1.metric("Units", len(df_f))
+    c2.metric("Avg Price", fmt(df_f["NetPrice"].mean()))
+    c3.metric("Max Price", fmt(df_f["NetPrice"].max()))
+    c4.metric("Min Price", fmt(df_f["NetPrice"].min()))
+
+    # ================= TREND FIXED =================
+    st.subheader("📈 Monthly Trend")
+
+    if len(df_f) > 0:
+
+        trend = df_f.groupby(["MonthOrder","SoldMonth"]).agg(
+            Qty=("NetPrice","count"),
+            AvgNet=("NetPrice","mean")
+        ).reset_index().sort_values("MonthOrder")
+
+        fig = go.Figure()
+
+        fig.add_trace(go.Scatter(
+            x=trend["SoldMonth"],
+            y=trend["AvgNet"],
+            mode="lines+markers+text",
+            name="Avg Price",
+            text=[f"{x:,.0f}" for x in trend["AvgNet"]],
+            textposition="top center"
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=trend["SoldMonth"],
+            y=trend["Qty"],
+            mode="lines+markers+text",
+            name="Qty",
+            text=trend["Qty"],
+            textposition="bottom center"
+        ))
+
+        st.plotly_chart(fig, use_container_width=True)
+
+    else:
+        st.warning("No data for selected filters")
+
+    st.dataframe(df_f, use_container_width=True)
 
 # =====================================================
-# PAGE 2 AI (FIXED SAFE TRAINING)
+# ================= PAGE 2 AI FIXED =================
 # =====================================================
 elif page == "🤖 AI Price Engine":
 
-    st.subheader("AI Market Pricing Engine (NORMAL reference)")
+    st.subheader("AI Pricing Engine (NORMAL Market)")
 
     if km_col is None:
         st.error("KM column missing")
         st.stop()
 
     df_ml = df[df["Auction"].astype(str).str.upper() == "NORMAL"].copy()
+    df_ml = df_ml.dropna(subset=["NetPrice","MAKE","MODEL","MODEL YEAR",km_col])
 
-    df_ml = df_ml.dropna(subset=["NetPrice", "MAKE", "MODEL", "MODEL YEAR", km_col])
-
-    # MUST HAVE ENOUGH DATA
     if len(df_ml) < 80:
-        st.warning("Not enough NORMAL market data")
+        st.warning("Not enough NORMAL data")
         st.stop()
 
-    # ENCODING SAFE
     le_make = LabelEncoder()
     le_model = LabelEncoder()
     le_year = LabelEncoder()
@@ -141,33 +190,27 @@ elif page == "🤖 AI Price Engine":
     c1,c2,c3,c4 = st.columns(4)
 
     make_ai = c1.selectbox("Make", sorted(df_ml["MAKE"].unique()))
-    model_ai = c2.selectbox("Model", sorted(df_ml[df_ml["MAKE"] == make_ai]["MODEL"].unique()))
+    model_ai = c2.selectbox("Model", sorted(df_ml[df_ml["MAKE"]==make_ai]["MODEL"].unique()))
     year_ai = c3.selectbox("Year", sorted(df_ml["MODEL YEAR"].unique()))
-    km_input = c4.number_input("KM", min_value=0, step=1000)
+    km_input = c4.number_input("KM",0,step=1000)
 
     filtered = df_ml[
-        (df_ml["MAKE"] == make_ai) &
-        (df_ml["MODEL"] == model_ai) &
-        (df_ml["MODEL YEAR"] == year_ai)
+        (df_ml["MAKE"]==make_ai) &
+        (df_ml["MODEL"]==model_ai) &
+        (df_ml["MODEL YEAR"]==year_ai)
     ]
 
-    # FIX CRASH
-    if filtered.shape[0] < 20:
-        st.warning("Not enough sample data for this combination")
+    if len(filtered) < 20:
+        st.warning("Not enough sample data")
         st.stop()
 
     X = filtered[["MAKE_ENC","MODEL_ENC","YEAR_ENC",km_col]]
     y = filtered["NetPrice"]
 
-    # EXTRA SAFETY CHECK
-    if X.shape[0] != y.shape[0]:
-        st.error("Data mismatch")
-        st.stop()
+    rf = RandomForestRegressor(n_estimators=120, random_state=42)
+    rf.fit(X,y)
 
-    model_rf = RandomForestRegressor(n_estimators=120, random_state=42)
-    model_rf.fit(X, y)
-
-    pred = model_rf.predict([[
+    pred = rf.predict([[
         le_make.transform([make_ai])[0],
         le_model.transform([model_ai])[0],
         le_year.transform([year_ai])[0],
@@ -177,7 +220,7 @@ elif page == "🤖 AI Price Engine":
     st.success(f"Predicted Price: AED {pred:,.0f}")
 
 # =====================================================
-# PAGE 3 DEALERS (WITH FILTERS)
+# ================= PAGE 3 DEALERS + FILTERS =================
 # =====================================================
 elif page == "📦 Dealer Performance":
 
@@ -185,24 +228,24 @@ elif page == "📦 Dealer Performance":
 
     c1,c2 = st.columns(2)
 
-    auction_filter = c1.selectbox("Auction Filter", ["All"] + sorted(df["Auction"].unique()))
-    buyer_filter = c2.selectbox("Buyer Type", ["All"] + sorted(df["BUYER TYPE"].dropna().unique()))
+    auction_f = c1.selectbox("Auction", ["All"] + sorted(df["Auction"].unique()))
+    buyer_f = c2.selectbox("Buyer Type", ["All"] + sorted(df["BUYER TYPE"].dropna().unique()))
 
     df_d = df.copy()
 
-    if auction_filter != "All":
-        df_d = df_d[df_d["Auction"] == auction_filter]
+    if auction_f != "All":
+        df_d = df_d[df_d["Auction"]==auction_f]
 
-    if buyer_filter != "All":
-        df_d = df_d[df_d["BUYER TYPE"] == buyer_filter]
+    if buyer_f != "All":
+        df_d = df_d[df_d["BUYER TYPE"]==buyer_f]
 
-    top_bidders = df_d.groupby("BUYER/DEBTOR NAME").agg(
+    top = df_d.groupby("BUYER/DEBTOR NAME").agg(
         Units=("NetPrice","count"),
         Value=("NetPrice","sum")
-    ).sort_values("Value", ascending=False).head(15)
+    ).sort_values("Value",ascending=False).head(15)
 
     st.subheader("Top Bidders")
-    st.dataframe(top_bidders)
+    st.dataframe(top)
 
     seg = df_d.groupby("BUYER TYPE").agg(
         Units=("NetPrice","count"),
@@ -213,7 +256,7 @@ elif page == "📦 Dealer Performance":
     st.dataframe(seg)
 
 # =====================================================
-# PAGE 4 INSIGHTS (WITH FILTERS)
+# ================= PAGE 4 INSIGHTS + FILTERS =================
 # =====================================================
 elif page == "📉 Insights Hub":
 
@@ -227,10 +270,10 @@ elif page == "📉 Insights Hub":
     df_i = df.copy()
 
     if make_f != "All":
-        df_i = df_i[df_i["MAKE"] == make_f]
+        df_i = df_i[df_i["MAKE"]==make_f]
 
     if year_f != "All":
-        df_i = df_i[df_i["MODEL YEAR"] == year_f]
+        df_i = df_i[df_i["MODEL YEAR"]==year_f]
 
     df_i["AGE"] = 2026 - df_i["MODEL YEAR"]
 
