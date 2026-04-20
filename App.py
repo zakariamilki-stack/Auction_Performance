@@ -180,14 +180,14 @@ if page == "📊 Overview":
 # =====================================================
 elif page == "🤖 AI Price Engine":
 
-    st.subheader("AI Pricing Engine (Market Corrected)")
+    st.subheader("AI Pricing Engine (Stable Market Model)")
 
     if km_col is None:
         st.error("KM column missing")
         st.stop()
 
     # =====================================================
-    # CLEAN DATA
+    # CLEAN DATA FIRST
     # =====================================================
     df_ml = df.copy()
 
@@ -195,19 +195,35 @@ elif page == "🤖 AI Price Engine":
     df_ml[km_col] = pd.to_numeric(df_ml[km_col], errors="coerce")
     df_ml["MODEL YEAR"] = pd.to_numeric(df_ml["MODEL YEAR"], errors="coerce")
 
-    df_ml = df_ml.dropna(subset=["NetPrice", km_col, "MAKE", "MODEL", "MODEL YEAR"])
+    df_ml = df_ml.dropna(subset=[
+        "NetPrice",
+        km_col,
+        "MAKE",
+        "MODEL",
+        "MODEL YEAR"
+    ])
+
+    # REMOVE INVALID YEARS
+    df_ml = df_ml[(df_ml["MODEL YEAR"] > 1990) & (df_ml["MODEL YEAR"] <= 2026)]
 
     # =====================================================
-    # ENGINEERED FEATURE (CRITICAL FIX)
+    # FEATURE ENGINEERING (SAFE)
     # =====================================================
     CURRENT_YEAR = 2026
+
     df_ml["AGE"] = CURRENT_YEAR - df_ml["MODEL YEAR"]
 
-    # log price (stabilizes weird jumps)
-    df_ml["LOG_PRICE"] = np.log(df_ml["NetPrice"] + 1)
+    # FIX: avoid zero or negative age
+    df_ml["AGE"] = df_ml["AGE"].clip(lower=1)
 
-    # KM per year (better than raw KM)
-    df_ml["KM_PER_YEAR"] = df_ml[km_col] / (df_ml["AGE"] + 1)
+    df_ml["KM_PER_YEAR"] = df_ml[km_col] / df_ml["AGE"]
+
+    # REMOVE INF / BAD VALUES
+    df_ml = df_ml.replace([np.inf, -np.inf], np.nan)
+    df_ml = df_ml.dropna(subset=["AGE", "KM_PER_YEAR"])
+
+    # log price for stability
+    df_ml["LOG_PRICE"] = np.log1p(df_ml["NetPrice"])
 
     # =====================================================
     # ENCODING
@@ -218,62 +234,65 @@ elif page == "🤖 AI Price Engine":
     df_ml["MAKE_ENC"] = df_ml["MAKE"].astype(str).map(make_map)
     df_ml["MODEL_ENC"] = df_ml["MODEL"].astype(str).map(model_map)
 
+    # FINAL CLEAN CHECK
     df_ml = df_ml.dropna()
 
+    if len(df_ml) < 50:
+        st.error("Not enough valid structured data after cleaning")
+        st.stop()
+
     # =====================================================
-    # INPUTS
+    # INPUT UI
     # =====================================================
-    c1,c2,c3,c4 = st.columns(4)
+    c1, c2, c3, c4 = st.columns(4)
 
     make_ai = c1.selectbox("Make", sorted(make_map.keys()))
     model_ai = c2.selectbox("Model", sorted(df_ml[df_ml["MAKE"]==make_ai]["MODEL"].unique()))
     year_ai = c3.number_input("Model Year", min_value=1990, max_value=2026, value=2020)
     km_input = c4.number_input("KM", 0, step=1000)
 
-    age = CURRENT_YEAR - year_ai
+    age = max(1, CURRENT_YEAR - year_ai)
+    km_per_year = km_input / age
 
     # =====================================================
     # MODEL
     # =====================================================
     from sklearn.ensemble import RandomForestRegressor
 
-    X = df_ml[[
-        "MAKE_ENC",
-        "MODEL_ENC",
-        "AGE",
-        "KM_PER_YEAR"
-    ]]
-
+    X = df_ml[["MAKE_ENC", "MODEL_ENC", "AGE", "KM_PER_YEAR"]]
     y = df_ml["LOG_PRICE"]
+
+    # FINAL ALIGNMENT SAFETY
+    valid = X.notna().all(axis=1) & y.notna()
+    X = X[valid]
+    y = y[valid]
 
     rf = RandomForestRegressor(
         n_estimators=200,
         random_state=42,
-        max_depth=10
+        max_depth=12
     )
 
     rf.fit(X, y)
 
     # =====================================================
-    # SAFE INPUT TRANSFORM
+    # PREDICTION
     # =====================================================
     make_enc = make_map.get(make_ai, 0)
     model_enc = model_map.get(model_ai, 0)
 
-    km_per_year = km_input / (age + 1)
-
     pred_log = rf.predict([[make_enc, model_enc, age, km_per_year]])[0]
-
-    pred = np.exp(pred_log) - 1
+    pred = np.expm1(pred_log)
 
     # =====================================================
-    # DISPLAY
+    # OUTPUT
     # =====================================================
     st.success(f"""
 🚗 Make: {make_ai}  
 🚙 Model: {model_ai}  
 📅 Year: {year_ai}  
 📍 KM: {km_input:,.0f}  
+📊 Age: {age} years  
 
 💰 Predicted Price: AED {pred:,.0f}
 """)
