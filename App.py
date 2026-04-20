@@ -1,7 +1,10 @@
 import streamlit as st
 
-st.set_page_config(page_title="Auction Intelligence Dashboard ZM", layout="wide")
+st.set_page_config(
+    page_title="Auction Intelligence Dashboard",
+    layout="wide"
+)
 
-st.title("📊 Auction Intelligence Dashboard")
+st.title("📊 Auction Intelligence System")
 
-st.write("Navigate using the sidebar 👈")
+st.write("Use sidebar to navigate pages 👈")
