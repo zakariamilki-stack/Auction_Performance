@@ -180,91 +180,95 @@ if page == "📊 Overview":
 # =====================================================
 elif page == "🤖 AI Price Engine":
 
-    st.subheader("AI Pricing Engine")
+    st.subheader("AI Pricing Engine (Market Corrected)")
 
     if km_col is None:
         st.error("KM column missing")
         st.stop()
 
     # =====================================================
-    # BASE CLEANING
+    # CLEAN DATA
     # =====================================================
     df_ml = df.copy()
 
     df_ml["NetPrice"] = pd.to_numeric(df_ml["NetPrice"], errors="coerce")
     df_ml[km_col] = pd.to_numeric(df_ml[km_col], errors="coerce")
+    df_ml["MODEL YEAR"] = pd.to_numeric(df_ml["MODEL YEAR"], errors="coerce")
 
     df_ml = df_ml.dropna(subset=["NetPrice", km_col, "MAKE", "MODEL", "MODEL YEAR"])
 
     # =====================================================
-    # WEIGHT (NORMAL priority but safe)
+    # ENGINEERED FEATURE (CRITICAL FIX)
     # =====================================================
-    df_ml["weight"] = 1
-    df_ml.loc[df_ml["Auction"].astype(str).str.upper() == "NORMAL", "weight"] = 2
+    CURRENT_YEAR = 2026
+    df_ml["AGE"] = CURRENT_YEAR - df_ml["MODEL YEAR"]
+
+    # log price (stabilizes weird jumps)
+    df_ml["LOG_PRICE"] = np.log(df_ml["NetPrice"] + 1)
+
+    # KM per year (better than raw KM)
+    df_ml["KM_PER_YEAR"] = df_ml[km_col] / (df_ml["AGE"] + 1)
 
     # =====================================================
-    # ENCODING MAPS
+    # ENCODING
     # =====================================================
     make_map = {v:i for i,v in enumerate(df_ml["MAKE"].astype(str).unique())}
     model_map = {v:i for i,v in enumerate(df_ml["MODEL"].astype(str).unique())}
-    year_map = {v:i for i,v in enumerate(df_ml["MODEL YEAR"].astype(str).unique())}
 
     df_ml["MAKE_ENC"] = df_ml["MAKE"].astype(str).map(make_map)
     df_ml["MODEL_ENC"] = df_ml["MODEL"].astype(str).map(model_map)
-    df_ml["YEAR_ENC"] = df_ml["MODEL YEAR"].astype(str).map(year_map)
 
-    # =====================================================
-    # FINAL CLEAN (CRITICAL STEP)
-    # =====================================================
-    df_ml = df_ml.dropna(subset=[
-        "MAKE_ENC",
-        "MODEL_ENC",
-        "YEAR_ENC",
-        "NetPrice",
-        km_col,
-        "weight"
-    ])
-
-    # FINAL ALIGNMENT CHECK
-    if len(df_ml) < 50:
-        st.error("Not enough clean training data after full validation")
-        st.stop()
+    df_ml = df_ml.dropna()
 
     # =====================================================
     # INPUTS
     # =====================================================
-    c1, c2, c3, c4 = st.columns(4)
+    c1,c2,c3,c4 = st.columns(4)
 
     make_ai = c1.selectbox("Make", sorted(make_map.keys()))
     model_ai = c2.selectbox("Model", sorted(df_ml[df_ml["MAKE"]==make_ai]["MODEL"].unique()))
-    year_ai = c3.selectbox("Year", sorted(df_ml[df_ml["MODEL"]==model_ai]["MODEL YEAR"].unique()))
+    year_ai = c3.number_input("Model Year", min_value=1990, max_value=2026, value=2020)
     km_input = c4.number_input("KM", 0, step=1000)
 
-    # =====================================================
-    # FINAL MODEL DATA
-    # =====================================================
-    X = df_ml[["MAKE_ENC","MODEL_ENC","YEAR_ENC",km_col]]
-    y = df_ml["NetPrice"]
-    w = df_ml["weight"]
+    age = CURRENT_YEAR - year_ai
 
-    # SAFETY ASSERTION (VERY IMPORTANT)
-    assert len(X) == len(y) == len(w)
-
+    # =====================================================
+    # MODEL
+    # =====================================================
     from sklearn.ensemble import RandomForestRegressor
 
-    rf = RandomForestRegressor(n_estimators=150, random_state=42)
+    X = df_ml[[
+        "MAKE_ENC",
+        "MODEL_ENC",
+        "AGE",
+        "KM_PER_YEAR"
+    ]]
 
-    rf.fit(X, y, sample_weight=w)
+    y = df_ml["LOG_PRICE"]
+
+    rf = RandomForestRegressor(
+        n_estimators=200,
+        random_state=42,
+        max_depth=10
+    )
+
+    rf.fit(X, y)
 
     # =====================================================
-    # SAFE PREDICTION
+    # SAFE INPUT TRANSFORM
     # =====================================================
     make_enc = make_map.get(make_ai, 0)
     model_enc = model_map.get(model_ai, 0)
-    year_enc = year_map.get(year_ai, 0)
 
-    pred = rf.predict([[make_enc, model_enc, year_enc, km_input]])[0]
+    km_per_year = km_input / (age + 1)
 
+    pred_log = rf.predict([[make_enc, model_enc, age, km_per_year]])[0]
+
+    pred = np.exp(pred_log) - 1
+
+    # =====================================================
+    # DISPLAY
+    # =====================================================
     st.success(f"""
 🚗 Make: {make_ai}  
 🚙 Model: {model_ai}  
