@@ -186,15 +186,31 @@ elif page == "🤖 AI Price Engine":
         st.error("KM column missing")
         st.stop()
 
+    # =====================================================
+    # CLEAN BASE DATA
+    # =====================================================
     df_ml = df[df["Auction"].astype(str).str.upper() == "NORMAL"].copy()
-    df_ml = df_ml.dropna(subset=["NetPrice","MAKE","MODEL","MODEL YEAR",km_col])
+
+    df_ml = df_ml.dropna(subset=[
+        "NetPrice",
+        "MAKE",
+        "MODEL",
+        "MODEL YEAR",
+        km_col
+    ])
+
+    # FORCE CLEAN NUMERIC TYPES
+    df_ml[km_col] = pd.to_numeric(df_ml[km_col], errors="coerce")
+    df_ml["NetPrice"] = pd.to_numeric(df_ml["NetPrice"], errors="coerce")
+
+    df_ml = df_ml.dropna()
 
     if len(df_ml) < 80:
-        st.warning("Not enough NORMAL market data")
+        st.warning("Not enough CLEAN NORMAL market data")
         st.stop()
 
     # =====================================================
-    # SAFE ENCODING MAP (NO LabelEncoder CRASH)
+    # SAFE MAPPING (NO ENCODER)
     # =====================================================
     make_map = {v:i for i,v in enumerate(df_ml["MAKE"].astype(str).unique())}
     model_map = {v:i for i,v in enumerate(df_ml["MODEL"].astype(str).unique())}
@@ -204,29 +220,43 @@ elif page == "🤖 AI Price Engine":
     df_ml["MODEL_ENC"] = df_ml["MODEL"].astype(str).map(model_map)
     df_ml["YEAR_ENC"] = df_ml["MODEL YEAR"].astype(str).map(year_map)
 
+    # DROP ANY ROW STILL INVALID
     df_ml = df_ml.dropna()
 
-    c1,c2,c3,c4 = st.columns(4)
+    # FINAL SAFETY CHECK
+    if len(df_ml) < 50:
+        st.error("Dataset too unstable after cleaning")
+        st.stop()
+
+    # =====================================================
+    # INPUTS
+    # =====================================================
+    c1, c2, c3, c4 = st.columns(4)
 
     make_ai = c1.selectbox("Make", sorted(make_map.keys()))
     model_ai = c2.selectbox("Model", sorted(df_ml[df_ml["MAKE"]==make_ai]["MODEL"].unique()))
     year_ai = c3.selectbox("Year", sorted(df_ml[df_ml["MODEL"]==model_ai]["MODEL YEAR"].unique()))
-    km_input = c4.number_input("KM",0,step=1000)
+    km_input = c4.number_input("KM", min_value=0, step=1000)
 
     # =====================================================
     # TRAIN MODEL
     # =====================================================
     from sklearn.ensemble import RandomForestRegressor
 
-    rf = RandomForestRegressor(n_estimators=150, random_state=42)
-
     X = df_ml[["MAKE_ENC","MODEL_ENC","YEAR_ENC",km_col]]
     y = df_ml["NetPrice"]
 
-    rf.fit(X,y)
+    # FINAL VALIDATION (IMPORTANT)
+    valid = X.notna().all(axis=1) & y.notna()
+
+    X = X[valid]
+    y = y[valid]
+
+    rf = RandomForestRegressor(n_estimators=150, random_state=42)
+    rf.fit(X, y)
 
     # =====================================================
-    # SAFE INPUT HANDLING (NO CRASH EVER)
+    # SAFE PREDICTION
     # =====================================================
     make_enc = make_map.get(make_ai, 0)
     model_enc = model_map.get(model_ai, 0)
