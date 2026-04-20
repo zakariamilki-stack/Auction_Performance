@@ -15,12 +15,12 @@ from io import BytesIO
 # =====================================================
 st.set_page_config(page_title="Auction Intelligence System", layout="wide")
 
-st.title("📊 Auction Intelligence Platform v1")
+st.title("📊 Auction Intelligence Platform v1 - ZM")
 
 # =====================================================
 # LOAD DATA (shared)
 # =====================================================
-file_path = "https://raw.githubusercontent.com/zakariamilki-stack/Auctiondata/refs/heads/main/2026YTD-PERFORMANCE.xlsx"
+file_path = r"https://raw.githubusercontent.com/zakariamilki-stack/Auctiondata/refs/heads/main/2026YTD-PERFORMANCE.xlsx"
 
 @st.cache_data
 def load_data():
@@ -70,51 +70,127 @@ for col in df.columns:
         break
 
 # =====================================================
-# ================= PAGE 1 (LOCKED EXACT) =================
+# ================= PAGE 1 (EXACT ORIGINAL - LOCKED) =================
 # =====================================================
 if page == "📊 Overview":
 
     st.subheader("🔎 Filters")
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
 
-    make = c1.selectbox("Make", ["All"] + sorted(df["MAKE"].dropna().unique()))
-    model = c2.selectbox("Model", ["All"] + sorted(df["MODEL"].dropna().unique()))
-    year = c3.selectbox("Year", ["All"] + sorted(df["MODEL YEAR"].dropna().unique()))
-
+    auction = c1.selectbox("Auction", ["All"] + sorted(df["Auction"].dropna().unique()))
     df_f = df.copy()
+    if auction != "All":
+        df_f = df_f[df_f["Auction"] == auction]
 
+    make = c2.selectbox("Make", ["All"] + sorted(df_f["MAKE"].dropna().unique()))
     if make != "All":
         df_f = df_f[df_f["MAKE"] == make]
+
+    model = c3.selectbox("Model", ["All"] + sorted(df_f["MODEL"].dropna().unique()))
     if model != "All":
         df_f = df_f[df_f["MODEL"] == model]
+
+    version = c4.selectbox("Version", ["All"] + sorted(df_f["VERSION"].dropna().unique()))
+    if version != "All":
+        df_f = df_f[df_f["VERSION"] == version]
+
+    year = c5.selectbox("Model Year", ["All"] + sorted(df_f["MODEL YEAR"].dropna().unique()))
     if year != "All":
         df_f = df_f[df_f["MODEL YEAR"] == year]
+
+    list_type = c6.selectbox("List Type", ["All"] + sorted(df_f["LIST TYPE"].dropna().unique()))
+    if list_type != "All":
+        df_f = df_f[df_f["LIST TYPE"] == list_type]
+
+    def format_aed(value):
+        if pd.isna(value):
+            return "-"
+        return f"AED {value:,.0f}"
 
     st.subheader("📌 KPIs")
 
     col1, col2, col3, col4 = st.columns(4)
 
-    col1.metric("Units", len(df_f))
-    col2.metric("Avg Price", f"AED {df_f['NetPrice'].mean():,.0f}")
-    col3.metric("Max Price", f"AED {df_f['NetPrice'].max():,.0f}")
-    col4.metric("Min Price", f"AED {df_f['NetPrice'].min():,.0f}")
+    col1.metric("Units Sold", f"{len(df_f):,}")
+    col2.metric("Avg Net Price", format_aed(df_f["NetPrice"].mean()))
+    col3.metric("Max Net Price", format_aed(df_f["NetPrice"].max()))
+    col4.metric("Min Net Price", format_aed(df_f["NetPrice"].min()))
 
-    st.subheader("📈 Trend")
+    st.subheader("📈 Monthly Trend")
 
-    trend = df_f.groupby("Auction")['NetPrice'].mean().reset_index()
+    trend = df_f.groupby(["MonthOrder", "SoldMonth"]).agg(
+        Qty=("NetPrice", "count"),
+        AvgNet=("NetPrice", "mean")
+    ).reset_index().sort_values("MonthOrder")
 
     fig = go.Figure()
-    fig.add_trace(go.Bar(x=trend["Auction"], y=trend["NetPrice"]))
+
+    fig.add_trace(go.Scatter(
+        x=trend["SoldMonth"],
+        y=trend["AvgNet"],
+        mode="lines+markers+text",
+        name="Avg Net Price",
+        text=[f"{v:,.0f}" for v in trend["AvgNet"]],
+        textposition="top center"
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=trend["SoldMonth"],
+        y=trend["Qty"],
+        mode="lines+markers+text",
+        name="Qty Sold",
+        text=trend["Qty"],
+        textposition="bottom center"
+    ))
+
+    fig.update_layout(height=500)
 
     st.plotly_chart(fig, use_container_width=True)
 
+    st.subheader("🧠 Smart Insights")
+
+    if len(df_f) > 0:
+
+        best_auction = df_f.groupby("Auction")["NetPrice"].count().idxmax()
+        best_count = df_f.groupby("Auction")["NetPrice"].count().max()
+
+        avg_price = df_f["NetPrice"].mean()
+        median_price = df_f["NetPrice"].median()
+
+        trend_direction = "increasing" if len(trend) > 1 and trend["Qty"].iloc[-1] > trend["Qty"].iloc[0] else "declining"
+
+        st.info(f"""
+🔹 Best Auction: {best_auction} ({best_count} units)
+
+🔹 Avg Price: {format_aed(avg_price)}
+
+🔹 Market Insight:
+{'Prices are strong vs median' if avg_price > median_price else 'Prices slightly under pressure'}
+
+🔹 Volume Trend:
+Sales are {trend_direction} over time
+""")
+
     st.dataframe(df_f, use_container_width=True)
+
+    def to_excel(dataframe):
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            dataframe.to_excel(writer, index=False)
+        return output.getvalue()
+
+    st.download_button(
+        "⬇️ Download Clean Data",
+        data=to_excel(df_f),
+        file_name="auction_dashboard.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
 # =====================================================
 # ================= PAGE 2 AI ENGINE =================
 # =====================================================
-elif page == "🤖 AI Price Engine":
+elif page == "🤖 AI Price Engine - Developed by ZM":
 
     st.subheader("🚗 Price Prediction Engine")
 
@@ -184,7 +260,7 @@ elif page == "📉 Residual Tracking":
 # =====================================================
 # ================= PAGE 5 AI DECISION =================
 # =====================================================
-elif page == "⚖️ Sell vs Hold AI":
+elif page == "⚖️ Sell vs Hold AI- BY ZM":
 
     st.subheader("Sell vs Hold Decision Engine")
 
