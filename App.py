@@ -180,37 +180,32 @@ if page == "📊 Overview":
 # =====================================================
 elif page == "🤖 AI Price Engine":
 
-    st.subheader("AI Pricing Engine (NORMAL Market)")
+    st.subheader("AI Pricing Engine")
 
     if km_col is None:
         st.error("KM column missing")
         st.stop()
 
     # =====================================================
-    # CLEAN BASE DATA
+    # SMART DATA STRATEGY (NO HARD FAILURE)
     # =====================================================
-    df_ml = df[df["Auction"].astype(str).str.upper() == "NORMAL"].copy()
+    df_ml = df.copy()
 
-    df_ml = df_ml.dropna(subset=[
-        "NetPrice",
-        "MAKE",
-        "MODEL",
-        "MODEL YEAR",
-        km_col
-    ])
-
-    # FORCE CLEAN NUMERIC TYPES
-    df_ml[km_col] = pd.to_numeric(df_ml[km_col], errors="coerce")
     df_ml["NetPrice"] = pd.to_numeric(df_ml["NetPrice"], errors="coerce")
+    df_ml[km_col] = pd.to_numeric(df_ml[km_col], errors="coerce")
 
-    df_ml = df_ml.dropna()
+    df_ml = df_ml.dropna(subset=["NetPrice", km_col, "MAKE", "MODEL", "MODEL YEAR"])
 
-    if len(df_ml) < 80:
-        st.warning("Not enough CLEAN NORMAL market data")
+    # PRIORITY WEIGHT (NORMAL = more important, but not required)
+    df_ml["weight"] = 1
+    df_ml.loc[df_ml["Auction"].astype(str).str.upper() == "NORMAL", "weight"] = 2
+
+    if len(df_ml) < 50:
+        st.error("Not enough usable data in dataset")
         st.stop()
 
     # =====================================================
-    # SAFE MAPPING (NO ENCODER)
+    # ENCODING (SAFE)
     # =====================================================
     make_map = {v:i for i,v in enumerate(df_ml["MAKE"].astype(str).unique())}
     model_map = {v:i for i,v in enumerate(df_ml["MODEL"].astype(str).unique())}
@@ -220,40 +215,30 @@ elif page == "🤖 AI Price Engine":
     df_ml["MODEL_ENC"] = df_ml["MODEL"].astype(str).map(model_map)
     df_ml["YEAR_ENC"] = df_ml["MODEL YEAR"].astype(str).map(year_map)
 
-    # DROP ANY ROW STILL INVALID
     df_ml = df_ml.dropna()
 
-    # FINAL SAFETY CHECK
-    if len(df_ml) < 50:
-        st.error("Dataset too unstable after cleaning")
-        st.stop()
-
     # =====================================================
-    # INPUTS
+    # INPUT UI
     # =====================================================
     c1, c2, c3, c4 = st.columns(4)
 
     make_ai = c1.selectbox("Make", sorted(make_map.keys()))
     model_ai = c2.selectbox("Model", sorted(df_ml[df_ml["MAKE"]==make_ai]["MODEL"].unique()))
     year_ai = c3.selectbox("Year", sorted(df_ml[df_ml["MODEL"]==model_ai]["MODEL YEAR"].unique()))
-    km_input = c4.number_input("KM", min_value=0, step=1000)
+    km_input = c4.number_input("KM", 0, step=1000)
 
     # =====================================================
-    # TRAIN MODEL
+    # MODEL
     # =====================================================
     from sklearn.ensemble import RandomForestRegressor
 
     X = df_ml[["MAKE_ENC","MODEL_ENC","YEAR_ENC",km_col]]
     y = df_ml["NetPrice"]
 
-    # FINAL VALIDATION (IMPORTANT)
-    valid = X.notna().all(axis=1) & y.notna()
-
-    X = X[valid]
-    y = y[valid]
-
     rf = RandomForestRegressor(n_estimators=150, random_state=42)
-    rf.fit(X, y)
+
+    # weight support (important improvement)
+    rf.fit(X, y, sample_weight=df_ml["weight"])
 
     # =====================================================
     # SAFE PREDICTION
@@ -264,6 +249,9 @@ elif page == "🤖 AI Price Engine":
 
     pred = rf.predict([[make_enc, model_enc, year_enc, km_input]])[0]
 
+    # =====================================================
+    # RESULT
+    # =====================================================
     st.success(f"""
 🚗 Make: {make_ai}  
 🚙 Model: {model_ai}  
