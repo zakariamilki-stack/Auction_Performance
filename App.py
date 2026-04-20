@@ -10,7 +10,7 @@ st.title("📊 Auction Intelligence Dashboard")
 # =====================================================
 # LOAD DATA FROM LOCAL ONEDRIVE
 # =====================================================
-file_path = r"https://raw.githubusercontent.com/zakariamilki-stack/Auctiondata/refs/heads/main/2026YTD-PERFORMANCE.xlsx?token=GHSAT0AAAAAAD2W7426GOUQDCNYVWLJ5TI42PFXPMA"
+file_path = r"https://raw.githubusercontent.com/zakariamilki-stack/Auctiondata/refs/heads/main/2026YTD-PERFORMANCE.xlsx"
 try:
     df = pd.read_excel(file_path)
     st.success("✅ Data loaded from OneDrive")
