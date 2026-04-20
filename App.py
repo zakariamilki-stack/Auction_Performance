@@ -180,14 +180,14 @@ if page == "📊 Overview":
 # =====================================================
 elif page == "🤖 AI Price Engine":
 
-    st.subheader("AI Pricing Engine (Stable Market Model)")
+    st.subheader("AI Pricing Engine (Robust Market Model)")
 
     if km_col is None:
         st.error("KM column missing")
         st.stop()
 
     # =====================================================
-    # CLEAN DATA FIRST
+    # 1. MINIMAL CLEANING (DO NOT OVER DELETE DATA)
     # =====================================================
     df_ml = df.copy()
 
@@ -195,50 +195,38 @@ elif page == "🤖 AI Price Engine":
     df_ml[km_col] = pd.to_numeric(df_ml[km_col], errors="coerce")
     df_ml["MODEL YEAR"] = pd.to_numeric(df_ml["MODEL YEAR"], errors="coerce")
 
-    df_ml = df_ml.dropna(subset=[
-        "NetPrice",
-        km_col,
-        "MAKE",
-        "MODEL",
-        "MODEL YEAR"
-    ])
+    # only essential drops
+    df_ml = df_ml.dropna(subset=["NetPrice", "MAKE", "MODEL"])
 
-    # REMOVE INVALID YEARS
-    df_ml = df_ml[(df_ml["MODEL YEAR"] > 1990) & (df_ml["MODEL YEAR"] <= 2026)]
+    # fill missing numeric instead of deleting
+    df_ml["NetPrice"] = df_ml["NetPrice"].fillna(df_ml["NetPrice"].median())
+    df_ml[km_col] = df_ml[km_col].fillna(df_ml[km_col].median())
+    df_ml["MODEL YEAR"] = df_ml["MODEL YEAR"].fillna(df_ml["MODEL YEAR"].median())
 
     # =====================================================
-    # FEATURE ENGINEERING (SAFE)
+    # 2. SAFE FEATURE ENGINEERING (NO ROW LOSS)
     # =====================================================
     CURRENT_YEAR = 2026
 
-    df_ml["AGE"] = CURRENT_YEAR - df_ml["MODEL YEAR"]
-
-    # FIX: avoid zero or negative age
-    df_ml["AGE"] = df_ml["AGE"].clip(lower=1)
-
+    df_ml["AGE"] = (CURRENT_YEAR - df_ml["MODEL YEAR"]).clip(lower=1, upper=40)
     df_ml["KM_PER_YEAR"] = df_ml[km_col] / df_ml["AGE"]
 
-    # REMOVE INF / BAD VALUES
-    df_ml = df_ml.replace([np.inf, -np.inf], np.nan)
-    df_ml = df_ml.dropna(subset=["AGE", "KM_PER_YEAR"])
-
-    # log price for stability
     df_ml["LOG_PRICE"] = np.log1p(df_ml["NetPrice"])
 
     # =====================================================
-    # ENCODING
+    # 3. SIMPLE ENCODING (SAFE)
     # =====================================================
     make_map = {v:i for i,v in enumerate(df_ml["MAKE"].astype(str).unique())}
     model_map = {v:i for i,v in enumerate(df_ml["MODEL"].astype(str).unique())}
 
-    df_ml["MAKE_ENC"] = df_ml["MAKE"].astype(str).map(make_map)
-    df_ml["MODEL_ENC"] = df_ml["MODEL"].astype(str).map(model_map)
+    df_ml["MAKE_ENC"] = df_ml["MAKE"].astype(str).map(make_map).fillna(0)
+    df_ml["MODEL_ENC"] = df_ml["MODEL"].astype(str).map(model_map).fillna(0)
 
-    # FINAL CLEAN CHECK
-    df_ml = df_ml.dropna()
-
-    if len(df_ml) < 50:
-        st.error("Not enough valid structured data after cleaning")
+    # =====================================================
+    # FINAL CHECK (NO HARD STOP)
+    # =====================================================
+    if len(df_ml) < 10:
+        st.error("Dataset too small even after fallback cleaning")
         st.stop()
 
     # =====================================================
@@ -262,15 +250,10 @@ elif page == "🤖 AI Price Engine":
     X = df_ml[["MAKE_ENC", "MODEL_ENC", "AGE", "KM_PER_YEAR"]]
     y = df_ml["LOG_PRICE"]
 
-    # FINAL ALIGNMENT SAFETY
-    valid = X.notna().all(axis=1) & y.notna()
-    X = X[valid]
-    y = y[valid]
-
     rf = RandomForestRegressor(
-        n_estimators=200,
+        n_estimators=150,
         random_state=42,
-        max_depth=12
+        max_depth=10
     )
 
     rf.fit(X, y)
