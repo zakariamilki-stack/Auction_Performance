@@ -72,7 +72,7 @@ for c in df.columns:
 # =====================================================
 page = st.sidebar.radio("Navigation", [
     "📊 Overview",
-    "🤖 AI Price Engine Made by Zakaria, Agent in training ",
+    "🤖 AI Price Engine Made by Zakaria, Agent in training",
     "📦 Dealer Performance",
     "📉 Insights Hub"
 ])
@@ -178,7 +178,7 @@ if page == "📊 Overview":
 # =====================================================
 # PAGE 2 - AI ENGINE
 # =====================================================
-elif page == "🤖  AI Price Engine Made by Zakaria, Agent in training ":
+elif page == "🤖  AI Price Engine":
 
     st.subheader("Hybrid Auction + Market Intelligence Engine (AUCTION ONLY)")
 
