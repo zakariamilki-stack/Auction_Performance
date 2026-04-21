@@ -196,21 +196,16 @@ elif page == "🤖  AI Price Engine":
     df_ml["MODEL YEAR"] = pd.to_numeric(df_ml["MODEL YEAR"], errors="coerce")
 
     df_ml = df_ml.dropna(subset=[
-        "NetPrice",
-        "MAKE",
-        "MODEL",
-        "MODEL YEAR",
-        km_col,
-        "LIST TYPE"
+        "NetPrice", "MAKE", "MODEL", "MODEL YEAR", km_col, "LIST TYPE"
     ])
 
     # =====================================================
-    # 🔥 STRICT FILTER: AUCTION ONLY
+    # FILTER AUCTION ONLY
     # =====================================================
     df_ml = df_ml[df_ml["LIST TYPE"].astype(str).str.upper() == "AUCTION"]
 
     if len(df_ml) < 30:
-        st.error("Insufficient AUCTION data in LIST TYPE filter")
+        st.error("Insufficient AUCTION data")
         st.stop()
 
     # =====================================================
@@ -218,41 +213,37 @@ elif page == "🤖  AI Price Engine":
     # =====================================================
     CURRENT_YEAR = 2026
 
+    df_ml["MAKE"] = df_ml["MAKE"].astype(str).str.strip()
+    df_ml["MODEL"] = df_ml["MODEL"].astype(str).str.strip()
+
     df_ml["AGE"] = (CURRENT_YEAR - df_ml["MODEL YEAR"]).clip(1, 40)
-    df_ml["KM_PER_YEAR"] = df_ml[km_col] / df_ml["AGE"]
+    df_ml["KM_PER_YEAR"] = (df_ml[km_col] / df_ml["AGE"]).clip(0, 60000)
 
     df_ml["LOG_PRICE"] = np.log1p(df_ml["NetPrice"])
 
-    # =====================================================
-    # CLEAN STRINGS
-    # =====================================================
-    df_ml["MAKE"] = df_ml["MAKE"].astype(str).str.strip()
-    df_ml["MODEL"] = df_ml["MODEL"].astype(str).str.strip()
+    # 🔥 FIX: combine make + model
+    df_ml["MAKE_MODEL"] = df_ml["MAKE"] + "_" + df_ml["MODEL"]
 
     # =====================================================
     # ENCODING
     # =====================================================
-    make_map = {v:i for i,v in enumerate(df_ml["MAKE"].unique())}
-    model_map = {v:i for i,v in enumerate(df_ml["MODEL"].unique())}
+    make_map = {v: i for i, v in enumerate(df_ml["MAKE"].unique())}
+    model_map = {v: i for i, v in enumerate(df_ml["MAKE_MODEL"].unique())}
 
     df_ml["MAKE_ENC"] = df_ml["MAKE"].map(make_map)
-    df_ml["MODEL_ENC"] = df_ml["MODEL"].map(model_map)
+    df_ml["MODEL_ENC"] = df_ml["MAKE_MODEL"].map(model_map)
 
     # =====================================================
-    # FINAL CLEAN (IMPORTANT)
+    # FINAL CLEAN
     # =====================================================
     df_ml = df_ml.replace([np.inf, -np.inf], np.nan)
 
     df_ml = df_ml.dropna(subset=[
-        "MAKE_ENC",
-        "MODEL_ENC",
-        "AGE",
-        "KM_PER_YEAR",
-        "LOG_PRICE"
+        "MAKE_ENC", "MODEL_ENC", "AGE", "KM_PER_YEAR", "LOG_PRICE"
     ])
 
     if len(df_ml) < 30:
-        st.error("Insufficient clean AUCTION data after full processing")
+        st.error("Not enough clean data after processing")
         st.stop()
 
     # =====================================================
@@ -261,83 +252,102 @@ elif page == "🤖  AI Price Engine":
     c1, c2, c3, c4 = st.columns(4)
 
     make_ai = c1.selectbox("Make", sorted(make_map.keys()))
-    model_ai = c2.selectbox(
-        "Model",
-        sorted(df_ml[df_ml["MAKE"] == make_ai]["MODEL"].unique())
-    )
-    year_ai = c3.number_input("Model Year", 1990, 2026, 2020)
-    km_input = c4.number_input("KM", 0, step=1000)
+
+    model_options = df_ml[df_ml["MAKE"] == make_ai]["MODEL"].unique()
+    model_ai = c2.selectbox("Model", sorted(model_options))
+
+    year_ai = c3.number_input("Model Year", 1990, CURRENT_YEAR, 2020)
+    km_input = c4.number_input("KM", min_value=0, step=1000)
 
     # =====================================================
-    # DERIVED FEATURES
+    # DERIVED INPUT FEATURES
     # =====================================================
     age = max(1, CURRENT_YEAR - year_ai)
-    km_per_year = km_input / age
+    km_input = max(1, km_input)
+    km_per_year = min(km_input / age, 60000)
+
+    make_enc = make_map.get(make_ai, 0)
+    model_key = make_ai + "_" + model_ai
+    model_enc = model_map.get(model_key, None)
+
+    if model_enc is None:
+        st.warning("⚠️ Model not found in auction data. Prediction may be unreliable.")
+        st.stop()
 
     # =====================================================
-    # MODEL TRAINING
+    # MODEL TRAINING (CACHED)
     # =====================================================
     from sklearn.ensemble import RandomForestRegressor
 
     X = df_ml[["MAKE_ENC", "MODEL_ENC", "AGE", "KM_PER_YEAR"]]
     y = df_ml["LOG_PRICE"]
 
-    # safety alignment
     valid = X.notna().all(axis=1) & y.notna()
     X = X[valid]
     y = y[valid]
 
-    rf = RandomForestRegressor(
-        n_estimators=200,
-        random_state=42,
-        max_depth=12
-    )
+    @st.cache_resource
+    def train_model(X, y):
+        model = RandomForestRegressor(
+            n_estimators=300,
+            max_depth=8,
+            min_samples_leaf=3,
+            random_state=42,
+            n_jobs=-1
+        )
+        model.fit(X, y)
+        return model
 
-    rf.fit(X, y)
+    rf = train_model(X, y)
 
     # =====================================================
     # PREDICTION
     # =====================================================
-    make_enc = make_map.get(make_ai, 0)
-    model_enc = model_map.get(model_ai, 0)
-
     pred_log = rf.predict([[make_enc, model_enc, age, km_per_year]])[0]
     pred = np.expm1(pred_log)
 
     # =====================================================
-    # MARKET BENCHMARK (INSIDE AUCTION CONTEXT)
+    # SMART MARKET BENCHMARK
     # =====================================================
-    avg_price = df_ml[
+    subset = df_ml[
         (df_ml["MAKE"] == make_ai) &
-        (df_ml["MODEL"] == model_ai)
-    ]["NetPrice"].mean()
+        (df_ml["MODEL"] == model_ai) &
+        (df_ml["AGE"].between(age - 1, age + 1)) &
+        (df_ml["KM_PER_YEAR"].between(km_per_year * 0.7, km_per_year * 1.3))
+    ]
 
-    if pd.isna(avg_price):
+    if len(subset) > 10:
+        avg_price = subset["NetPrice"].mean()
+        confidence = "High"
+    else:
         avg_price = df_ml["NetPrice"].mean()
+        confidence = "Low (fallback market)"
 
-    market_low = avg_price * 0.88
+    market_low = avg_price * 0.90
     market_high = avg_price * 1.05
     market_mid = (market_low + market_high) / 2
 
     diff_pct = ((pred - market_mid) / market_mid) * 100
 
     if diff_pct < -5:
-        signal = "🟢 Undervalued (BUY OPPORTUNITY)"
+        signal = "🟢 Undervalued (BUY)"
     elif diff_pct > 5:
-        signal = "🔴 Overpriced (NEGOTIATE / AVOID)"
+        signal = "🔴 Overpriced"
     else:
-        signal = "🟡 Fair Market Zone"
+        signal = "🟡 Fair"
 
     # =====================================================
     # OUTPUT
     # =====================================================
     st.success(f"""
-🚗 Auction AI Price: AED {pred:,.0f}
+🚗 AI Price: AED {pred:,.0f}
 
-📊 Market Range (Auction Benchmark):
+📊 Market Range:
 AED {market_low:,.0f} → {market_high:,.0f}
 
-📈 Difference vs Market: {diff_pct:.2f}%
+📈 Difference: {diff_pct:.2f}%
+
+📌 Confidence: {confidence}
 
 {signal}
 """)
