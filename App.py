@@ -178,7 +178,7 @@ if page == "📊 Overview":
 # =====================================================
 # PAGE 2 - AI ENGINE
 # =====================================================
-elif page == "🤖  AI Price Engine":
+elif page == "🤖 AI Price Engine":
 
     st.subheader("Hybrid Auction + Market Intelligence Engine (AUCTION ONLY)")
 
