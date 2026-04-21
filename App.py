@@ -72,7 +72,7 @@ for c in df.columns:
 # =====================================================
 page = st.sidebar.radio("Navigation", [
     "📊 Overview",
-    "🤖 AI Price Engine",
+    "🤖 AI Price Engine Made by Zakaria, Agent in training ",
     "📦 Dealer Performance",
     "📉 Insights Hub"
 ])
